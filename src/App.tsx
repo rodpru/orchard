@@ -4,14 +4,13 @@ import { useTranslation } from "react-i18next";
 import { NewWorktreeDialog, RemoveWorktreeDialog, SettingsDialog } from "./components/Dialogs";
 import { Sidebar } from "./components/Sidebar";
 import { WorktreeView } from "./components/WorktreeView";
-import { resolveLanguage } from "./i18n";
-import { api } from "./lib/api";
-import { summarizePr } from "./lib/pr";
-import type { Config, PrSummary, Worktree } from "./lib/types";
+import { useConfig } from "./hooks/useConfig";
+import { usePrStatus } from "./hooks/usePrStatus";
+import { useSessionIndicators } from "./hooks/useSessionIndicators";
+import { useWorktrees } from "./hooks/useWorktrees";
+import { api, errorMessage } from "./lib/api";
+import type { Config, SessionInfo, Worktree } from "./lib/types";
 import "./styles.css";
-
-const WORKTREE_POLL_MS = 15_000;
-const PR_POLL_MS = 60_000;
 
 type DialogState =
   | { kind: "new"; repo: string }
@@ -19,119 +18,38 @@ type DialogState =
   | { kind: "settings" }
   | null;
 
-function withItem(set: Set<string>, item: string): Set<string> {
-  return set.has(item) ? set : new Set(set).add(item);
-}
+const NO_SESSIONS: SessionInfo[] = [];
 
-function withoutItem(set: Set<string>, item: string): Set<string> {
-  if (!set.has(item)) return set;
-  const next = new Set(set);
-  next.delete(item);
-  return next;
-}
-
-function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
-  if (!(key in record)) return record;
-  const next = { ...record };
-  delete next[key];
-  return next;
+function withRepo(config: Config, repo: string): Config {
+  return config.repos.includes(repo) ? config : { ...config, repos: [...config.repos, repo] };
 }
 
 export default function App() {
-  const { t, i18n } = useTranslation();
-  const [config, setConfig] = useState<Config | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [worktrees, setWorktrees] = useState<Record<string, Worktree[]>>({});
-  const [repoErrors, setRepoErrors] = useState<Record<string, string>>({});
-  const [prs, setPrs] = useState<Record<string, PrSummary | null>>({});
+  const { t } = useTranslation();
+  const { config, loadError, updateConfig } = useConfig();
+  const repos = useMemo(() => config?.repos ?? [], [config]);
+  const pinned = useMemo(() => config?.pinned ?? [], [config]);
+  const { worktrees, repoErrors, refreshRepo, refreshAll, forgetRepo } = useWorktrees(repos);
+  const { prs, prErrors, refreshPrs } = usePrStatus(repos, worktrees);
   const [open, setOpen] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [agentOverrides, setAgentOverrides] = useState<Record<string, string>>({});
-  const [activity, setActivity] = useState<Record<string, number>>({});
-  const [unread, setUnread] = useState<Set<string>>(new Set());
-  const [attention, setAttention] = useState<Set<string>>(new Set());
+  const [restored, setRestored] = useState<Record<string, SessionInfo[]>>({});
+  const { activity, unread, attention, onActivity, onBell, markSeen } = useSessionIndicators(selected);
   const [dialog, setDialog] = useState<DialogState>(null);
 
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
-  const worktreesRef = useRef(worktrees);
-  worktreesRef.current = worktrees;
-  // Last known worktree per open path, so a transient git error during a
-  // refresh never unmounts a view (which would kill its agent).
-  const knownWorktrees = useRef<Record<string, Worktree>>({});
-
+  // Sessions outlive the webview, so a reload reopens the views it closed.
   useEffect(() => {
     api
-      .configLoad()
-      .then((loaded) => {
-        setConfig(loaded);
-        void i18n.changeLanguage(resolveLanguage(loaded.language));
+      .ptyList()
+      .then((sessions) => {
+        const byCwd: Record<string, SessionInfo[]> = {};
+        for (const session of sessions) (byCwd[session.cwd] ??= []).push(session);
+        setRestored(byCwd);
+        setOpen((current) => [...new Set([...current, ...Object.keys(byCwd)])]);
       })
-      .catch((e: unknown) => setLoadError(String(e)));
-  }, [i18n]);
-
-  const saveConfig = useCallback(
-    async (next: Config) => {
-      setConfig(next);
-      void i18n.changeLanguage(resolveLanguage(next.language));
-      await api.configSave(next);
-    },
-    [i18n],
-  );
-
-  const repos = useMemo(() => config?.repos ?? [], [config]);
-
-  const refreshRepo = useCallback(async (repo: string) => {
-    try {
-      const list = await api.listWorktrees(repo);
-      setWorktrees((current) => ({ ...current, [repo]: list }));
-      setRepoErrors((current) => withoutKey(current, repo));
-    } catch (e) {
-      setRepoErrors((current) => ({ ...current, [repo]: String(e) }));
-    }
+      .catch(() => undefined);
   }, []);
-
-  const refreshAll = useCallback(() => Promise.all(repos.map(refreshRepo)), [repos, refreshRepo]);
-
-  const refreshPrs = useCallback(async () => {
-    const targets = Object.values(worktreesRef.current)
-      .flat()
-      .flatMap((wt) => (wt.branch && !wt.isMain ? [{ path: wt.path, branch: wt.branch }] : []));
-    const results = await Promise.all(
-      targets.map(async ({ path, branch }) => {
-        try {
-          const pr = await api.prStatus(path, branch);
-          return [path, pr ? summarizePr(pr) : null] as const;
-        } catch {
-          return [path, null] as const;
-        }
-      }),
-    );
-    setPrs(Object.fromEntries(results));
-  }, []);
-
-  useEffect(() => {
-    void refreshAll();
-    const timer = window.setInterval(() => void refreshAll(), WORKTREE_POLL_MS);
-    const onFocus = () => void refreshAll();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [refreshAll]);
-
-  const worktreePathsKey = Object.values(worktrees)
-    .flat()
-    .map((wt) => `${wt.path}@${wt.branch ?? ""}`)
-    .join("|");
-
-  useEffect(() => {
-    if (!worktreePathsKey) return;
-    void refreshPrs();
-    const timer = window.setInterval(() => void refreshPrs(), PR_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [worktreePathsKey, refreshPrs]);
 
   const byPath = useMemo(() => {
     const map: Record<string, { repo: string; worktree: Worktree }> = {};
@@ -141,8 +59,6 @@ export default function App() {
     return map;
   }, [worktrees]);
 
-  const pinned = useMemo(() => config?.pinned ?? [], [config]);
-
   // Same order as the sidebar: pinned worktrees first, then repo by repo.
   const shortcutOrder = useMemo(() => {
     const rest = repos.flatMap((repo) => (worktrees[repo] ?? []).map((wt) => wt.path)).filter((p) => !pinned.includes(p));
@@ -150,62 +66,54 @@ export default function App() {
   }, [repos, worktrees, open, pinned, byPath]);
 
   const togglePin = useCallback(
-    (path: string) => {
-      if (!config) return;
-      const next = config.pinned.includes(path)
-        ? config.pinned.filter((p) => p !== path)
-        : [...config.pinned, path];
-      void saveConfig({ ...config, pinned: next });
-    },
-    [config, saveConfig],
+    (path: string) =>
+      void updateConfig((c) => ({
+        ...c,
+        pinned: c.pinned.includes(path) ? c.pinned.filter((p) => p !== path) : [...c.pinned, path],
+      })),
+    [updateConfig],
   );
 
-  const select = useCallback((path: string) => {
-    setOpen((current) => (current.includes(path) ? current : [...current, path]));
-    setSelected(path);
-    setUnread((current) => withoutItem(current, path));
-    setAttention((current) => withoutItem(current, path));
-  }, []);
-
-  const onActivity = useCallback((path: string) => {
-    setActivity((current) => ({ ...current, [path]: Date.now() }));
-    if (selectedRef.current !== path) setUnread((current) => withItem(current, path));
-  }, []);
-
-  const onBell = useCallback((path: string) => {
-    if (selectedRef.current !== path || !document.hasFocus()) {
-      setAttention((current) => withItem(current, path));
-    }
-  }, []);
+  const select = useCallback(
+    (path: string) => {
+      setOpen((current) => (current.includes(path) ? current : [...current, path]));
+      setSelected(path);
+      markSeen(path);
+    },
+    [markSeen],
+  );
 
   // `orchard <path>` opens the worktree containing <path>, registering its repo.
   const startupHandled = useRef(false);
+  const loaded = config !== null;
   useEffect(() => {
-    if (!config || startupHandled.current) return;
+    if (!loaded || startupHandled.current) return;
     startupHandled.current = true;
     void (async () => {
       const path = await api.startupPath();
       if (!path) return;
       try {
         const root = await api.resolveRepo(path);
-        if (!config.repos.includes(root)) await saveConfig({ ...config, repos: [...config.repos, root] });
-        const list = await api.listWorktrees(root);
-        setWorktrees((current) => ({ ...current, [root]: list }));
+        await updateConfig((c) => withRepo(c, root));
+        const list = (await refreshRepo(root)) ?? [];
         const match = list
           .filter((wt) => path === wt.path || path.startsWith(`${wt.path}/`))
           .sort((a, b) => b.path.length - a.path.length)[0];
         if (match) select(match.path);
       } catch (e) {
-        await message(String(e), { title: t("errors.notRepo"), kind: "error" });
+        await message(errorMessage(e), { title: t("errors.notRepo"), kind: "error" });
       }
     })();
-  }, [config, saveConfig, select, t]);
+  }, [loaded, updateConfig, refreshRepo, select, t]);
 
-  const closeSessions = useCallback((path: string) => {
-    setOpen((current) => current.filter((p) => p !== path));
-    setSelected((current) => (current === path ? null : current));
-    delete knownWorktrees.current[path];
+  /** Closes the worktrees' views; resolves once their terminals have exited. */
+  const closeSessions = useCallback(async (paths: string[]) => {
+    setOpen((current) => current.filter((p) => !paths.includes(p)));
+    setSelected((current) => (current && paths.includes(current) ? null : current));
+    await api.ptyKillWorktrees(paths);
   }, []);
+
+  const closeOne = useCallback((path: string) => void closeSessions([path]), [closeSessions]);
 
   const requestRemove = useCallback(
     (worktree: Worktree) => {
@@ -215,34 +123,56 @@ export default function App() {
     [byPath],
   );
 
+  /**
+   * Removes the worktree and, if asked, its local branch. The pin is dropped
+   * whenever the worktree is gone afterwards, even when deleting the branch
+   * failed.
+   */
+  const removeWorktree = async (repo: string, worktree: Worktree, options: { force: boolean; deleteBranch: boolean }) => {
+    const { path } = worktree;
+    await closeSessions([path]);
+    try {
+      await api.removeWorktree({
+        repo,
+        path,
+        force: options.force,
+        deleteBranch: options.deleteBranch ? worktree.branch : null,
+      });
+      setDialog(null);
+    } finally {
+      const list = await refreshRepo(repo);
+      if (list && !list.some((wt) => wt.path === path)) {
+        void updateConfig((c) => ({ ...c, pinned: c.pinned.filter((p) => p !== path) }));
+      }
+    }
+  };
+
   const addRepo = async () => {
-    if (!config) return;
     const picked = await openDialog({ directory: true, multiple: false, title: t("sidebar.addRepo") });
     if (typeof picked !== "string") return;
     try {
       const root = await api.resolveRepo(picked);
-      if (!config.repos.includes(root)) await saveConfig({ ...config, repos: [...config.repos, root] });
+      await updateConfig((c) => withRepo(c, root));
       await refreshRepo(root);
     } catch (e) {
-      await message(String(e), { title: t("errors.notRepo"), kind: "error" });
+      await message(errorMessage(e), { title: t("errors.notRepo"), kind: "error" });
     }
   };
 
   const removeRepo = async (repo: string) => {
-    if (!config) return;
     const confirmed = await ask(t("sidebar.removeRepoConfirm", { repo }), {
       title: t("sidebar.removeRepo"),
       kind: "warning",
     });
     if (!confirmed) return;
     const paths = (worktrees[repo] ?? []).map((wt) => wt.path);
-    for (const path of paths) closeSessions(path);
-    setWorktrees((current) => withoutKey(current, repo));
-    await saveConfig({
-      ...config,
-      repos: config.repos.filter((r) => r !== repo),
-      pinned: config.pinned.filter((p) => !paths.includes(p)),
-    });
+    void closeSessions(paths);
+    forgetRepo(repo);
+    await updateConfig((c) => ({
+      ...c,
+      repos: c.repos.filter((r) => r !== repo),
+      pinned: c.pinned.filter((p) => !paths.includes(p)),
+    }));
   };
 
   useEffect(() => {
@@ -269,17 +199,13 @@ export default function App() {
   if (loadError) return <div className="fatal">{loadError}</div>;
   if (!config) return <div className="fatal">{t("app.loading")}</div>;
 
-  for (const path of open) {
-    const entry = byPath[path];
-    if (entry) knownWorktrees.current[path] = entry.worktree;
-  }
-
   return (
     <div className="app">
       <Sidebar
         repos={repos}
         worktrees={worktrees}
         repoErrors={repoErrors}
+        prErrors={prErrors}
         prs={prs}
         pinned={pinned}
         open={open}
@@ -299,7 +225,9 @@ export default function App() {
 
       <main className="main">
         {open.map((path) => {
-          const worktree = knownWorktrees.current[path];
+          // A worktree missing from the last listing has no view; its
+          // terminals keep running and reattach if it comes back.
+          const worktree = byPath[path]?.worktree;
           if (!worktree) return null;
           return (
             <WorktreeView
@@ -310,16 +238,17 @@ export default function App() {
               active={selected === path}
               pr={prs[path] ?? null}
               pinned={pinned.includes(path)}
+              restored={restored[path] ?? NO_SESSIONS}
               onTogglePin={togglePin}
               onActivity={onActivity}
               onBell={onBell}
               onRemove={requestRemove}
-              onClose={closeSessions}
+              onClose={closeOne}
             />
           );
         })}
 
-        {!selected && (
+        {!(selected && selected in byPath) && (
           <div className="empty" data-tauri-drag-region>
             {repos.length === 0 ? (
               <>
@@ -358,18 +287,7 @@ export default function App() {
         <RemoveWorktreeDialog
           worktree={dialog.worktree}
           onCancel={() => setDialog(null)}
-          onConfirm={async ({ force, deleteBranch }) => {
-            closeSessions(dialog.worktree.path);
-            await api.removeWorktree({
-              repo: dialog.repo,
-              path: dialog.worktree.path,
-              force,
-              deleteBranch: deleteBranch ? dialog.worktree.branch : null,
-            });
-            setDialog(null);
-            if (config.pinned.includes(dialog.worktree.path)) togglePin(dialog.worktree.path);
-            await refreshRepo(dialog.repo);
-          }}
+          onConfirm={(options) => removeWorktree(dialog.repo, dialog.worktree, options)}
         />
       )}
 
@@ -377,9 +295,17 @@ export default function App() {
         <SettingsDialog
           config={config}
           onCancel={() => setDialog(null)}
-          onSave={(next) => {
+          onSave={(draft) => {
             setDialog(null);
-            void saveConfig(next);
+            // Only the settings fields: repos and pins may have changed meanwhile.
+            void updateConfig((c) => ({
+              ...c,
+              agentCommand: draft.agentCommand,
+              lazygitCommand: draft.lazygitCommand,
+              editorCommand: draft.editorCommand,
+              worktreeRoot: draft.worktreeRoot,
+              language: draft.language,
+            }));
           }}
         />
       )}

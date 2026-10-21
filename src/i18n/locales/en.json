@@ -8,7 +8,8 @@
     "save": "Save"
   },
   "errors": {
-    "notRepo": "Not a git repository"
+    "notRepo": "Not a git repository",
+    "configCorrupt": "Your settings file could not be read. It was moved to {{path}} and Orchard started with default settings."
   },
   "sidebar": {
     "refresh": "Refresh worktrees and PRs",
@@ -20,7 +21,8 @@
     "main": "main",
     "pinned": "Pinned",
     "pin": "Pin to top",
-    "unpin": "Unpin"
+    "unpin": "Unpin",
+    "prError": "PR status unavailable: {{error}}"
   },
   "worktree": {
     "detached": "detached HEAD",
@@ -70,7 +72,7 @@
     "dirty_one": "It has {{count}} uncommitted change. Tick \"force\" to discard it.",
     "dirty_other": "It has {{count}} uncommitted changes. Tick \"force\" to discard them.",
     "force": "Force (discard uncommitted changes)",
-    "deleteBranch": "Also delete branch {{branch}}",
+    "deleteBranch": "Also delete local branch {{branch}} (the remote branch is never deleted)",
     "confirm": "Remove"
   },
   "settings": {

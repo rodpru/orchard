@@ -606,6 +606,14 @@ kbd {
   color: var(--yellow);
 }
 
+.warning.small {
+  font-size: 11px;
+  margin: 2px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Pinning */
 .repo-name.static {
   padding-left: 18px;

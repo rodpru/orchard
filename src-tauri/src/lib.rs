@@ -1,6 +1,8 @@
 mod config;
+mod error;
 mod gh;
 mod git;
+mod process;
 mod pty;
 mod system;
 
@@ -15,21 +17,22 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
         .invoke_handler(tauri::generate_handler![
-            pty::pty_spawn,
+            pty::pty_attach,
+            pty::pty_detach,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            pty::pty_kill_worktrees,
+            pty::pty_list,
             git::git_resolve_repo,
             git::git_list_worktrees,
             git::git_list_branches,
             git::git_create_worktree,
             git::git_remove_worktree,
-            gh::gh_pr_status,
+            gh::gh_pr_list,
             config::config_load,
             config::config_save,
             system::open_in_editor,
-            system::reveal_in_finder,
-            system::open_url,
             system::startup_path,
         ])
         .build(tauri::generate_context!())

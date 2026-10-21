@@ -5,8 +5,8 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { api } from "../lib/api";
-import type { PtyEvent } from "../lib/types";
+import { api, errorMessage, type PtyMessage } from "../lib/api";
+import type { SessionId } from "../lib/sessions";
 
 const THEME = {
   background: "#16171d",
@@ -35,7 +35,7 @@ const THEME = {
 };
 
 interface Props {
-  id: string;
+  id: SessionId;
   cwd: string;
   command: string | null;
   active: boolean;
@@ -43,14 +43,23 @@ interface Props {
   onBell?: () => void;
 }
 
+/**
+ * A view of a backend session. Mounting attaches (starting the process if it
+ * is not running) and replays recent output; unmounting only detaches, so the
+ * process survives re-renders, StrictMode and webview reloads. Processes end
+ * through `api.ptyKill*`, or here when `command` changes.
+ */
 export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<{ term: XTerm; fit: FitAddon } | null>(null);
   // Callbacks and translations change identity on every render; read them
-  // through refs so the terminal (and its process) is created only once.
+  // through refs so the terminal is created only once.
   const latest = useRef({ onActivity, onBell, t });
-  latest.current = { onActivity, onBell, t };
+  useEffect(() => {
+    latest.current = { onActivity, onBell, t };
+  });
+  const attachedCommand = useRef(command);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -68,35 +77,53 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon((_event, uri) => void api.openUrl(uri)));
+    term.loadAddon(new WebLinksAddon((_event, uri) => void api.openUrl(uri).catch(() => undefined)));
     term.open(container);
     if (container.offsetWidth > 0) fit.fit();
     instanceRef.current = { term, fit };
 
     let disposed = false;
     let exited = false;
+    let token: number | null = null;
     let lastActivity = 0;
 
-    const spawn = () => {
-      const channel = new Channel<PtyEvent>();
-      channel.onmessage = (event) => {
+    const attach = () => {
+      const channel = new Channel<PtyMessage>();
+      // Output that arrives before the attach resolves is the replay of what
+      // happened while detached; it is not new activity.
+      let live = false;
+      channel.onmessage = (message) => {
         if (disposed) return;
-        if (event.kind === "data") {
-          term.write(event.data);
+        if (message instanceof ArrayBuffer) {
+          term.write(new Uint8Array(message));
           const now = Date.now();
-          if (now - lastActivity > 1000) {
+          if (live && now - lastActivity > 1000) {
             lastActivity = now;
             latest.current.onActivity?.();
           }
-        } else {
+        } else if (message.kind === "exit") {
           exited = true;
           term.write(`\r\n\x1b[2m${latest.current.t("terminal.exited")}\x1b[0m\r\n`);
         }
       };
       exited = false;
       api
-        .ptySpawn({ id, cwd, command, cols: term.cols, rows: term.rows }, channel)
-        .catch((error: unknown) => term.write(`\x1b[31m${String(error)}\x1b[0m\r\n`));
+        .ptyAttach({ id, cwd, command, cols: term.cols, rows: term.rows }, channel)
+        .then((attached) => {
+          if (disposed) void api.ptyDetach(id, attached);
+          else {
+            token = attached;
+            live = true;
+          }
+        })
+        .catch((error: unknown) => term.write(`\x1b[31m${errorMessage(error)}\x1b[0m\r\n`));
+    };
+
+    const restart = () => {
+      term.reset();
+      // Sync commands run in order, so the attach below starts a new process.
+      void api.ptyKill(id);
+      attach();
     };
 
     term.attachCustomKeyEventHandler((event) => {
@@ -109,10 +136,7 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
     });
     term.onData((data) => {
       if (exited) {
-        if (data === "\r") {
-          term.reset();
-          spawn();
-        }
+        if (data === "\r") restart();
         return;
       }
       api.ptyWrite(id, data).catch(() => undefined);
@@ -127,12 +151,18 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
     });
     observer.observe(container);
 
-    spawn();
+    if (attachedCommand.current !== command) {
+      // The configured command changed (e.g. lazygit in Settings): replace the process.
+      attachedCommand.current = command;
+      restart();
+    } else {
+      attach();
+    }
 
     return () => {
       disposed = true;
       observer.disconnect();
-      api.ptyKill(id).catch(() => undefined);
+      if (token !== null) void api.ptyDetach(id, token).catch(() => undefined);
       term.dispose();
       instanceRef.current = null;
     };

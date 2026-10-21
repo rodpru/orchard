@@ -14,6 +14,15 @@ pnpm install
 pnpm tauri dev
 ```
 
+Checks (also run in CI):
+
+```bash
+pnpm exec tsc --noEmit && pnpm lint && pnpm test
+cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+```
+
+IPC types in `src/lib/bindings/` are generated from the Rust structs. After changing one, run `pnpm gen:types` and commit the result.
+
 ## Build
 
 ```bash
@@ -39,5 +48,6 @@ orchard .
 
 ## Where things live
 
-- Config: `~/Library/Application Support/dev.orchard.app/config.json`
+- Config: `~/Library/Application Support/dev.orchard.app/config.json`. If it cannot be parsed, it is moved to `config.json.corrupt-<timestamp>` next to it and Orchard starts with defaults.
+- Terminals: owned by the app, not the window. Closing a worktree view's tab or the view itself stops its processes; reloading the window does not. Quitting Orchard stops all of them.
 - New worktrees: `<repo>.worktrees/<branch>` next to the repository, or `<root>/<repo>/<branch>` when a worktree folder is set in Settings.

@@ -10,6 +10,7 @@ interface Props {
   repos: string[];
   worktrees: Record<string, Worktree[]>;
   repoErrors: Record<string, string>;
+  prErrors: Record<string, string>;
   prs: Record<string, PrSummary | null>;
   pinned: string[];
   open: string[];
@@ -44,7 +45,7 @@ export function PinIcon({ filled }: { filled: boolean }) {
 export function Sidebar(props: Props) {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -160,6 +161,11 @@ export function Sidebar(props: Props) {
                 </button>
               </div>
               {props.repoErrors[repo] && <p className="error small">{props.repoErrors[repo]}</p>}
+              {props.prErrors[repo] && (
+                <p className="warning small" title={props.prErrors[repo]}>
+                  {t("sidebar.prError", { error: props.prErrors[repo] })}
+                </p>
+              )}
               {!isCollapsed && rows.map((wt) => renderRow(wt, null))}
             </div>
           );

@@ -1,13 +1,15 @@
+import { message } from "@tauri-apps/plugin-dialog";
 import { memo, useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, basename } from "../lib/api";
-import type { Config, PrSummary, Worktree } from "../lib/types";
+import { api, basename, errorMessage } from "../lib/api";
+import { type SessionId, sessionId, shellNumber } from "../lib/sessions";
+import type { Config, PrSummary, SessionInfo, Worktree } from "../lib/types";
 import { PrBadge } from "./PrBadge";
 import { PinIcon } from "./Sidebar";
 import { Terminal } from "./Terminal";
 
 interface Tab {
-  id: string;
+  id: SessionId;
   kind: "agent" | "shell";
   command: string | null;
   label: string;
@@ -20,6 +22,8 @@ interface Props {
   active: boolean;
   pr: PrSummary | null;
   pinned: boolean;
+  /** Shell sessions still running from before a webview reload. */
+  restored: SessionInfo[];
   onTogglePin: (path: string) => void;
   onActivity: (path: string) => void;
   onBell: (path: string) => void;
@@ -29,13 +33,33 @@ interface Props {
 
 const CREATE_PR_COMMAND = "git push -u origin HEAD && gh pr create --web";
 
-function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, onTogglePin, onActivity, onBell, onRemove, onClose }: Props) {
+const showError = (e: unknown) => void message(errorMessage(e), { kind: "error" });
+
+function initialTabs(path: string, agentCommand: string, restored: SessionInfo[], shellLabel: (n: number) => string) {
+  const shells = restored
+    .flatMap((session) => {
+      const n = shellNumber(session.id, path);
+      return n === null ? [] : [{ n, session }];
+    })
+    .sort((a, b) => a.n - b.n);
+  const tabs: Tab[] = [
+    { id: sessionId.agent(path), kind: "agent", command: agentCommand || null, label: agentCommand || "shell" },
+    ...shells.map(({ n, session }): Tab => ({
+      id: sessionId.shell(path, n),
+      kind: "shell",
+      command: session.command,
+      label: shellLabel(n),
+    })),
+  ];
+  return { tabs, shellCount: Math.max(0, ...shells.map(({ n }) => n)) };
+}
+
+function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, restored, onTogglePin, onActivity, onBell, onRemove, onClose }: Props) {
   const { t } = useTranslation();
   const { path } = worktree;
-  const shellCount = useRef(0);
-  const [tabs, setTabs] = useState<Tab[]>(() => [
-    { id: `${path}::agent`, kind: "agent", command: agentCommand || null, label: agentCommand || "shell" },
-  ]);
+  const [initial] = useState(() => initialTabs(path, agentCommand, restored, (n) => t("worktree.shellTab", { n })));
+  const shellCount = useRef(initial.shellCount);
+  const [tabs, setTabs] = useState<Tab[]>(initial.tabs);
   const [activeTab, setActiveTab] = useState(tabs[0].id);
   const [showGit, setShowGit] = useState(true);
   const [split, setSplit] = useState(58);
@@ -45,7 +69,7 @@ function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, 
     (command: string | null = null, label?: string) => {
       shellCount.current += 1;
       const tab: Tab = {
-        id: `${path}::shell::${shellCount.current}`,
+        id: sessionId.shell(path, shellCount.current),
         kind: "shell",
         command,
         label: label ?? t("worktree.shellTab", { n: shellCount.current }),
@@ -56,7 +80,8 @@ function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, 
     [path, t],
   );
 
-  const closeTab = (id: string) => {
+  const closeTab = (id: SessionId) => {
+    void api.ptyKill(id);
     const next = tabs.filter((tab) => tab.id !== id);
     setTabs(next);
     if (activeTab === id) setActiveTab(next[next.length - 1].id);
@@ -96,7 +121,7 @@ function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, 
             <span className="changes">{t("worktree.changes", { count: worktree.changes })}</span>
           )}
           {pr && (
-            <button className="link" onClick={() => void api.openUrl(pr.pr.url)}>
+            <button className="link" onClick={() => void api.openUrl(pr.url)}>
               <PrBadge summary={pr} />
             </button>
           )}
@@ -115,8 +140,10 @@ function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, 
               {t("worktree.createPr")}
             </button>
           )}
-          <button onClick={() => void api.openInEditor(config.editorCommand, path)}>{t("worktree.openEditor")}</button>
-          <button onClick={() => void api.revealInFinder(path)}>{t("worktree.reveal")}</button>
+          <button onClick={() => void api.openInEditor(config.editorCommand, path).catch(showError)}>
+            {t("worktree.openEditor")}
+          </button>
+          <button onClick={() => void api.revealInFinder(path).catch(showError)}>{t("worktree.reveal")}</button>
           <button className={showGit ? "toggled" : ""} onClick={() => setShowGit((v) => !v)}>
             {t("worktree.lazygit")}
           </button>
@@ -184,7 +211,7 @@ function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, 
           <div className="pane-content">
             <div className="terminal-slot">
               <Terminal
-                id={`${path}::lazygit`}
+                id={sessionId.lazygit(path)}
                 cwd={path}
                 command={config.lazygitCommand || "lazygit"}
                 active={false}

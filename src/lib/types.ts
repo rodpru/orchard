@@ -1,60 +1,11 @@
-export interface Config {
-  repos: string[];
-  pinned: string[];
-  agentCommand: string;
-  lazygitCommand: string;
-  editorCommand: string;
-  worktreeRoot: string;
-  language: string | null;
-}
-
-export interface Worktree {
-  path: string;
-  branch: string | null;
-  head: string;
-  isMain: boolean;
-  locked: boolean;
-  prunable: boolean;
-  changes: number;
-}
-
-export interface Branches {
-  local: string[];
-  remote: string[];
-  defaultBranch: string;
-}
-
-export type PtyEvent =
-  | { kind: "data"; data: string }
-  | { kind: "exit"; data: number | null };
-
-interface CheckRun {
-  __typename: "CheckRun";
-  name: string;
-  status: string;
-  conclusion: string | null;
-}
-
-interface StatusContext {
-  __typename: "StatusContext";
-  context: string;
-  state: string;
-}
-
-export interface PullRequest {
-  number: number;
-  title: string;
-  state: "OPEN" | "CLOSED" | "MERGED";
-  url: string;
-  isDraft: boolean;
-  reviewDecision: string | null;
-  mergeStateStatus: string;
-  statusCheckRollup: (CheckRun | StatusContext)[] | null;
-}
-
-export type CheckState = "success" | "failure" | "pending" | "none";
-
-export interface PrSummary {
-  pr: PullRequest;
-  checks: { state: CheckState; passed: number; failed: number; pending: number };
-}
+// IPC types are generated from the Rust structs by ts-rs (`pnpm gen:types`).
+export type { Branches } from "./bindings/Branches";
+export type { CheckState } from "./bindings/CheckState";
+export type { Config } from "./bindings/Config";
+export type { IpcError } from "./bindings/IpcError";
+export type { Language } from "./bindings/Language";
+export type { LoadedConfig } from "./bindings/LoadedConfig";
+export type { PrSummary } from "./bindings/PrSummary";
+export type { PtyEvent } from "./bindings/PtyEvent";
+export type { SessionInfo } from "./bindings/SessionInfo";
+export type { Worktree } from "./bindings/Worktree";

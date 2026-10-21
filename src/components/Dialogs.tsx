@@ -1,8 +1,8 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LANGUAGES } from "../i18n";
-import { api, basename } from "../lib/api";
-import type { Branches, Config, Worktree } from "../lib/types";
+import { api, basename, errorMessage } from "../lib/api";
+import type { Branches, Config, Language, Worktree } from "../lib/types";
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   useEffect(() => {
@@ -25,7 +25,7 @@ interface NewWorktreeProps {
   repo: string;
   config: Config;
   onCancel: () => void;
-  onCreated: (path: string, agentCommand: string) => void;
+  onCreated: (path: string, agentCommand: string) => Promise<void>;
 }
 
 export function NewWorktreeDialog({ repo, config, onCancel, onCreated }: NewWorktreeProps) {
@@ -44,7 +44,7 @@ export function NewWorktreeDialog({ repo, config, onCancel, onCreated }: NewWork
         setBranches(result);
         setBase(result.defaultBranch);
       })
-      .catch((e: unknown) => setError(String(e)));
+      .catch((e: unknown) => setError(errorMessage(e)));
   }, [repo]);
 
   const submit = async (event: FormEvent) => {
@@ -58,16 +58,16 @@ export function NewWorktreeDialog({ repo, config, onCancel, onCreated }: NewWork
         base: base || null,
         root: config.worktreeRoot || null,
       });
-      onCreated(path, agent.trim());
+      await onCreated(path, agent.trim());
     } catch (e) {
-      setError(String(e));
+      setError(errorMessage(e));
       setBusy(false);
     }
   };
 
   return (
     <Modal title={t("newWorktree.title", { repo: basename(repo) })} onClose={onCancel}>
-      <form onSubmit={submit}>
+      <form onSubmit={(e) => void submit(e)}>
         <label>
           {t("newWorktree.branch")}
           <input
@@ -143,7 +143,7 @@ export function RemoveWorktreeDialog({ worktree, onCancel, onConfirm }: RemovePr
     try {
       await onConfirm({ force, deleteBranch });
     } catch (e) {
-      setError(String(e));
+      setError(errorMessage(e));
       setBusy(false);
     }
   };
@@ -219,7 +219,7 @@ export function SettingsDialog({ config, onCancel, onSave }: SettingsProps) {
           {t("settings.language")}
           <select
             value={draft.language ?? ""}
-            onChange={(e) => setDraft({ ...draft, language: e.target.value || null })}
+            onChange={(e) => setDraft({ ...draft, language: (e.target.value || null) as Language | null })}
           >
             <option value="">{t("settings.languageAuto")}</option>
             {LANGUAGES.map((lang) => (

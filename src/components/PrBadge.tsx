@@ -5,22 +5,22 @@ const CHECK_ICON = { success: "✓", failure: "✕", pending: "●", none: "" } 
 
 export function PrBadge({ summary, compact = false }: { summary: PrSummary; compact?: boolean }) {
   const { t } = useTranslation();
-  const { pr, checks } = summary;
-  const status = pr.state === "OPEN" ? (pr.isDraft ? "draft" : "open") : pr.state.toLowerCase();
+  const { checks } = summary;
+  const status = summary.state === "OPEN" ? (summary.isDraft ? "draft" : "open") : summary.state.toLowerCase();
 
   return (
     <span
       className={`pr-badge pr-${status} checks-${checks.state}`}
       title={t("pr.tooltip", {
-        number: pr.number,
-        title: pr.title,
+        number: summary.number,
+        title: summary.title,
         status: t(`pr.status.${status}`),
         passed: checks.passed,
         failed: checks.failed,
         pending: checks.pending,
       })}
     >
-      #{pr.number}
+      #{summary.number}
       {checks.state !== "none" && <span className="pr-checks">{CHECK_ICON[checks.state]}</span>}
       {!compact && <span className="pr-status">{t(`pr.status.${status}`)}</span>}
     </span>

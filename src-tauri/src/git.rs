@@ -1,26 +1,24 @@
+use crate::error::{Error, Result};
+use crate::process::run;
+use futures_util::{StreamExt, stream};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use ts_rs::TS;
 
-pub fn run(cwd: &Path, program: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(program)
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .map_err(|e| format!("{program}: {e}"))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_owned())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
-    }
+/// Parallel `git status` calls per refresh. Enough to hide latency without
+/// flooding the machine when a repo has many worktrees.
+const STATUS_CONCURRENCY: usize = 8;
+
+/// Every git call skips optional locks: Orchard polls `git status` while agents
+/// run `git add`/`git commit` in the same worktree, and a refresh that takes
+/// `index.lock` makes their commands fail with "File exists".
+async fn git(cwd: &Path, args: &[&str]) -> Result<String> {
+    run(cwd, "git", args, &[("GIT_OPTIONAL_LOCKS", "0")]).await
 }
 
-fn git(cwd: &Path, args: &[&str]) -> Result<String, String> {
-    run(cwd, "git", args)
-}
-
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct Worktree {
     path: String,
     branch: Option<String>,
@@ -28,6 +26,7 @@ pub struct Worktree {
     is_main: bool,
     locked: bool,
     prunable: bool,
+    #[ts(type = "number")]
     changes: usize,
 }
 
@@ -64,50 +63,56 @@ fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {
 
 /// Resolves any path inside a repository (or one of its worktrees) to the
 /// main worktree, so a repo is always registered by the same path.
-#[tauri::command]
-pub async fn git_resolve_repo(path: String) -> Result<String, String> {
-    let porcelain = git(Path::new(&path), &["worktree", "list", "--porcelain"])?;
+pub async fn resolve_repo(path: &Path) -> Result<String> {
+    let porcelain = git(path, &["worktree", "list", "--porcelain"]).await?;
     parse_worktrees(&porcelain)
         .into_iter()
         .next()
         .map(|wt| wt.path)
-        .ok_or_else(|| "not a git repository".into())
+        .ok_or_else(|| Error::Invalid("not a git repository".into()))
 }
 
-#[tauri::command]
-pub async fn git_list_worktrees(repo: String) -> Result<Vec<Worktree>, String> {
-    let porcelain = git(Path::new(&repo), &["worktree", "list", "--porcelain"])?;
-    let mut worktrees = parse_worktrees(&porcelain);
-    for wt in worktrees.iter_mut().filter(|wt| !wt.prunable) {
-        wt.changes = git(Path::new(&wt.path), &["status", "--porcelain"])
-            .map(|out| out.lines().count())
-            .unwrap_or(0);
-    }
-    Ok(worktrees)
+pub async fn list_worktrees(repo: &Path) -> Result<Vec<Worktree>> {
+    let porcelain = git(repo, &["worktree", "list", "--porcelain"]).await?;
+    let worktrees = parse_worktrees(&porcelain);
+    let paths: Vec<Option<PathBuf>> =
+        worktrees.iter().map(|wt| (!wt.prunable).then(|| PathBuf::from(&wt.path))).collect();
+    let counts: Vec<usize> = stream::iter(paths)
+        .map(|path| async move {
+            let Some(path) = path else { return 0 };
+            git(&path, &["status", "--porcelain"]).await.map(|out| out.lines().count()).unwrap_or(0)
+        })
+        .buffered(STATUS_CONCURRENCY)
+        .collect()
+        .await;
+    Ok(worktrees.into_iter().zip(counts).map(|(wt, changes)| Worktree { changes, ..wt }).collect())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct Branches {
     local: Vec<String>,
     remote: Vec<String>,
     default_branch: String,
 }
 
-#[tauri::command]
-pub async fn git_list_branches(repo: String) -> Result<Branches, String> {
-    let cwd = Path::new(&repo);
-    let lines = |refs: &str| -> Result<Vec<String>, String> {
-        Ok(git(cwd, &["for-each-ref", "--format=%(refname:short)", refs])?
-            .lines()
-            .filter(|l| !l.ends_with("/HEAD") && !l.is_empty())
-            .map(str::to_owned)
-            .collect())
+pub async fn list_branches(repo: &Path) -> Result<Branches> {
+    let refs = |pattern: &'static str| async move {
+        Ok::<_, Error>(
+            git(repo, &["for-each-ref", "--format=%(refname:short)", pattern])
+                .await?
+                .lines()
+                .filter(|l| !l.ends_with("/HEAD") && !l.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>(),
+        )
     };
-    let default_branch = git(cwd, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
-        .or_else(|_| git(cwd, &["branch", "--show-current"]))
-        .unwrap_or_else(|_| "main".into());
-    Ok(Branches { local: lines("refs/heads")?, remote: lines("refs/remotes")?, default_branch })
+    let default_branch = match git(repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).await {
+        Ok(branch) => branch,
+        Err(_) => git(repo, &["branch", "--show-current"]).await.unwrap_or_else(|_| "main".into()),
+    };
+    Ok(Branches { local: refs("refs/heads").await?, remote: refs("refs/remotes").await?, default_branch })
 }
 
 fn sanitize(branch: &str) -> String {
@@ -117,43 +122,7 @@ fn sanitize(branch: &str) -> String {
 /// Default location: `<parent>/<repo>.worktrees/<branch>`, next to the repo.
 fn default_worktree_path(repo: &Path, branch: &str) -> PathBuf {
     let name = repo.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    repo.parent()
-        .unwrap_or(repo)
-        .join(format!("{name}.worktrees"))
-        .join(sanitize(branch))
-}
-
-#[tauri::command]
-pub async fn git_create_worktree(
-    repo: String,
-    branch: String,
-    base: Option<String>,
-    root: Option<String>,
-) -> Result<String, String> {
-    let cwd = Path::new(&repo);
-    let branch = branch.trim();
-    if branch.is_empty() {
-        return Err("branch name is required".into());
-    }
-    git(cwd, &["check-ref-format", "--branch", branch])?;
-
-    let path = match root.as_deref().map(str::trim).filter(|r| !r.is_empty()) {
-        Some(root) => {
-            let name = cwd.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            PathBuf::from(shellexpand_home(root)).join(name).join(sanitize(branch))
-        }
-        None => default_worktree_path(cwd, branch),
-    };
-    let path_str = path.to_string_lossy().into_owned();
-
-    let exists = git(cwd, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")]).is_ok();
-    if exists {
-        git(cwd, &["worktree", "add", &path_str, branch])?;
-    } else {
-        let base = base.unwrap_or_else(|| "HEAD".into());
-        git(cwd, &["worktree", "add", "-b", branch, &path_str, &base])?;
-    }
-    Ok(path_str)
+    repo.parent().unwrap_or(repo).join(format!("{name}.worktrees")).join(sanitize(branch))
 }
 
 fn shellexpand_home(path: &str) -> String {
@@ -163,29 +132,90 @@ fn shellexpand_home(path: &str) -> String {
     }
 }
 
-#[tauri::command]
-pub async fn git_remove_worktree(
-    repo: String,
-    path: String,
-    force: bool,
-    delete_branch: Option<String>,
-) -> Result<(), String> {
-    let cwd = Path::new(&repo);
+async fn local_branch_exists(repo: &Path, branch: &str) -> bool {
+    git(repo, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")]).await.is_ok()
+}
+
+pub async fn create_worktree(repo: &Path, branch: &str, base: Option<&str>, root: Option<&str>) -> Result<String> {
+    let branch = branch.trim();
+    if branch.is_empty() {
+        return Err(Error::Invalid("branch name is required".into()));
+    }
+    git(repo, &["check-ref-format", "--branch", branch]).await?;
+
+    let path = match root.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(root) => {
+            let name = repo.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            PathBuf::from(shellexpand_home(root)).join(name).join(sanitize(branch))
+        }
+        None => default_worktree_path(repo, branch),
+    };
+    let path_str = path.to_string_lossy().into_owned();
+
+    if local_branch_exists(repo, branch).await {
+        git(repo, &["worktree", "add", "--", &path_str, branch]).await?;
+    } else {
+        // --no-track: a branch started from `origin/main` must not push to it.
+        let base = base.unwrap_or("HEAD");
+        git(repo, &["worktree", "add", "--no-track", "-b", branch, "--", &path_str, base]).await?;
+    }
+    Ok(path_str)
+}
+
+/// Removes the worktree and, when asked, its **local** branch. Remote
+/// branches are never touched.
+pub async fn remove_worktree(repo: &Path, path: &str, force: bool, delete_branch: Option<&str>) -> Result<()> {
     let mut args = vec!["worktree", "remove"];
     if force {
         args.push("--force");
     }
-    args.push(&path);
-    git(cwd, &args)?;
+    args.extend(["--", path]);
+    git(repo, &args).await?;
     if let Some(branch) = delete_branch {
-        git(cwd, &["branch", "-D", &branch])?;
+        if !local_branch_exists(repo, branch).await {
+            return Err(Error::Invalid(format!("worktree removed, but {branch} is not a local branch")));
+        }
+        git(repo, &["branch", "-D", "--", branch])
+            .await
+            .map_err(|e| Error::Invalid(format!("worktree removed, but deleting branch {branch} failed: {e}")))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn git_resolve_repo(path: String) -> Result<String> {
+    resolve_repo(Path::new(&path)).await
+}
+
+#[tauri::command]
+pub async fn git_list_worktrees(repo: String) -> Result<Vec<Worktree>> {
+    list_worktrees(Path::new(&repo)).await
+}
+
+#[tauri::command]
+pub async fn git_list_branches(repo: String) -> Result<Branches> {
+    list_branches(Path::new(&repo)).await
+}
+
+#[tauri::command]
+pub async fn git_create_worktree(
+    repo: String,
+    branch: String,
+    base: Option<String>,
+    root: Option<String>,
+) -> Result<String> {
+    create_worktree(Path::new(&repo), &branch, base.as_deref(), root.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn git_remove_worktree(repo: String, path: String, force: bool, delete_branch: Option<String>) -> Result<()> {
+    remove_worktree(Path::new(&repo), &path, force, delete_branch.as_deref()).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tauri::async_runtime::block_on;
 
     #[test]
     fn parses_porcelain() {
@@ -199,39 +229,58 @@ mod tests {
         assert!(wts[2].prunable);
     }
 
-    fn sh(cwd: &Path, args: &[&str]) {
-        run(cwd, "git", args).unwrap();
+    fn sh(cwd: &Path, args: &[&str]) -> String {
+        block_on(git(cwd, args)).unwrap()
     }
 
     #[test]
     fn create_list_and_remove_worktree() {
-        let tmp = std::env::temp_dir().join(format!("orchard-test-{}", std::process::id()));
-        let repo = tmp.join("app");
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("app");
         std::fs::create_dir_all(&repo).unwrap();
         sh(&repo, &["init", "-q", "-b", "main"]);
         sh(&repo, &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"]);
-        let repo_str = repo.to_string_lossy().into_owned();
+        // A fake remote-tracking ref, to check new branches do not track it.
+        sh(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
 
-        let path = tauri::async_runtime::block_on(git_create_worktree(repo_str.clone(), "feat/x".into(), Some("main".into()), None)).unwrap();
+        let path = block_on(create_worktree(&repo, "feat/x", Some("origin/main"), None)).unwrap();
         assert!(path.ends_with("app.worktrees/feat-x"));
+        assert!(block_on(git(&repo, &["rev-parse", "--abbrev-ref", "feat/x@{upstream}"])).is_err());
         std::fs::write(Path::new(&path).join("new.txt"), "hi").unwrap();
 
-        let resolved = tauri::async_runtime::block_on(git_resolve_repo(path.clone())).unwrap();
+        let resolved = block_on(resolve_repo(Path::new(&path))).unwrap();
         assert_eq!(std::fs::canonicalize(resolved).unwrap(), std::fs::canonicalize(&repo).unwrap());
 
-        let wts = tauri::async_runtime::block_on(git_list_worktrees(repo_str.clone())).unwrap();
+        let wts = block_on(list_worktrees(&repo)).unwrap();
         assert_eq!(wts.len(), 2);
         assert_eq!(wts[1].branch.as_deref(), Some("feat/x"));
         assert_eq!(wts[1].changes, 1);
+        // Polling status must not leave an index lock behind for agents.
+        assert!(!repo.join(".git/worktrees/feat-x/index.lock").exists());
 
-        // Existing branch is checked out instead of re-created.
-        assert!(tauri::async_runtime::block_on(git_create_worktree(repo_str.clone(), "feat/x".into(), None, None)).is_err());
+        // The branch is already checked out, so a second worktree fails.
+        assert!(block_on(create_worktree(&repo, "feat/x", None, None)).is_err());
 
-        assert!(tauri::async_runtime::block_on(git_remove_worktree(repo_str.clone(), path.clone(), false, None)).is_err());
-        tauri::async_runtime::block_on(git_remove_worktree(repo_str.clone(), path, true, Some("feat/x".into()))).unwrap();
-        let branches = tauri::async_runtime::block_on(git_list_branches(repo_str)).unwrap();
+        let dirty = block_on(remove_worktree(&repo, &path, false, None)).unwrap_err();
+        assert!(dirty.to_string().starts_with("git worktree remove -- "), "{dirty}");
+        block_on(remove_worktree(&repo, &path, true, Some("feat/x"))).unwrap();
+        let branches = block_on(list_branches(&repo)).unwrap();
         assert_eq!(branches.local, vec!["main".to_string()]);
-        std::fs::remove_dir_all(tmp).unwrap();
+        assert_eq!(branches.remote, vec!["origin/main".to_string()]);
+    }
+
+    #[test]
+    fn deleting_a_non_local_branch_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("app");
+        std::fs::create_dir_all(&repo).unwrap();
+        sh(&repo, &["init", "-q", "-b", "main"]);
+        sh(&repo, &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"]);
+        sh(&repo, &["update-ref", "refs/remotes/origin/feat", "HEAD"]);
+        let path = block_on(create_worktree(&repo, "other", None, None)).unwrap();
+        let err = block_on(remove_worktree(&repo, &path, false, Some("origin/feat"))).unwrap_err();
+        assert!(err.to_string().contains("not a local branch"), "{err}");
+        assert_eq!(sh(&repo, &["for-each-ref", "--format=%(refname)", "refs/remotes"]), "refs/remotes/origin/feat");
     }
 
     #[test]

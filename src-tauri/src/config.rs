@@ -1,10 +1,32 @@
-use serde::{Deserialize, Serialize};
+use crate::error::Result;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fs;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
+use ts_rs::TS;
 
-#[derive(Serialize, Deserialize, Clone)]
+const CONFIG_VERSION: u32 = 1;
+
+#[derive(Serialize, Deserialize, TS, Clone, Copy, PartialEq, Debug)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum Language {
+    En,
+    Pt,
+}
+
+/// An unknown language (hand-edited file, removed locale) falls back to the
+/// system language instead of rejecting the whole config.
+fn lenient_language<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Language>, D::Error> {
+    Ok(Option::<serde_json::Value>::deserialize(d)?.and_then(|v| serde_json::from_value(v).ok()))
+}
+
+#[derive(Serialize, Deserialize, TS, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase", default)]
+#[ts(export)]
 pub struct Config {
+    pub version: u32,
     pub repos: Vec<String>,
     /// Worktree paths shown at the top of the sidebar, in pin order.
     pub pinned: Vec<String>,
@@ -13,12 +35,14 @@ pub struct Config {
     pub editor_command: String,
     /// Optional root for new worktrees; empty means next to the repo.
     pub worktree_root: String,
-    pub language: Option<String>,
+    #[serde(deserialize_with = "lenient_language")]
+    pub language: Option<Language>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            version: CONFIG_VERSION,
             repos: Vec::new(),
             pinned: Vec::new(),
             agent_command: "claude".into(),
@@ -30,23 +54,115 @@ impl Default for Config {
     }
 }
 
-fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+fn config_path(app: &AppHandle) -> Result<PathBuf> {
+    let dir = app.path().app_config_dir().map_err(|e| crate::error::Error::Invalid(e.to_string()))?;
+    fs::create_dir_all(&dir)?;
     Ok(dir.join("config.json"))
 }
 
-#[tauri::command]
-pub fn config_load(app: AppHandle) -> Result<Config, String> {
-    let path = config_path(&app)?;
-    match fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str(&raw).map_err(|e| e.to_string()),
-        Err(_) => Ok(Config::default()),
+#[derive(Serialize, TS, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LoadedConfig {
+    pub config: Config,
+    /// Where an unreadable config was moved, so the UI can tell the user.
+    pub corrupt_backup: Option<String>,
+}
+
+/// Defaults only when the file does not exist. A corrupt file is moved aside
+/// so the next save cannot overwrite the user's repos; any other read error
+/// (permissions, I/O) is reported instead of silently starting empty.
+fn load(path: &Path) -> Result<LoadedConfig> {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            return Ok(LoadedConfig { config: Config::default(), corrupt_backup: None });
+        }
+        Err(e) => return Err(e.into()),
+    };
+    match serde_json::from_str(&raw) {
+        Ok(config) => Ok(LoadedConfig { config, corrupt_backup: None }),
+        Err(_) => {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or_default();
+            let backup = path.with_extension(format!("json.corrupt-{stamp}"));
+            fs::rename(path, &backup)?;
+            Ok(LoadedConfig { config: Config::default(), corrupt_backup: Some(backup.to_string_lossy().into_owned()) })
+        }
     }
 }
 
+/// Writes to a temporary file and renames it, so a crash mid-write never
+/// leaves a truncated config.
+fn save(path: &Path, config: &Config) -> Result<()> {
+    let raw = serde_json::to_string_pretty(&Config { version: CONFIG_VERSION, ..config.clone() })?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, raw)?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
 #[tauri::command]
-pub fn config_save(app: AppHandle, config: Config) -> Result<(), String> {
-    let raw = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    fs::write(config_path(&app)?, raw).map_err(|e| e.to_string())
+pub async fn config_load(app: AppHandle) -> Result<LoadedConfig> {
+    load(&config_path(&app)?)
+}
+
+#[tauri::command]
+pub async fn config_save(app: AppHandle, config: Config) -> Result<()> {
+    save(&config_path(&app)?, &config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_file_gives_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(load(&dir.path().join("config.json")).unwrap().config, Config::default());
+    }
+
+    #[test]
+    fn round_trips_and_keeps_old_files_readable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        // A file written before `version` existed, with an unknown language.
+        fs::write(&path, r#"{"repos":["/r"],"pinned":["/r"],"language":"xx"}"#).unwrap();
+        let config = load(&path).unwrap().config;
+        assert_eq!(config.repos, vec!["/r".to_string()]);
+        assert_eq!(config.language, None);
+        assert_eq!(config.agent_command, "claude");
+
+        save(&path, &Config { language: Some(Language::Pt), ..config }).unwrap();
+        let back = load(&path).unwrap().config;
+        assert_eq!(back.language, Some(Language::Pt));
+        assert_eq!(back.version, CONFIG_VERSION);
+        assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn corrupt_file_is_moved_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, "{ not json").unwrap();
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.config, Config::default());
+        assert!(loaded.corrupt_backup.is_some_and(|b| Path::new(&b).exists()));
+        assert!(!path.exists());
+        let backups: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
+        assert_eq!(backups.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_file_is_an_error_not_defaults() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, "{}").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        assert!(load(&path).is_err());
+    }
 }

@@ -8,7 +8,8 @@
     "save": "Guardar"
   },
   "errors": {
-    "notRepo": "Não é um repositório git"
+    "notRepo": "Não é um repositório git",
+    "configCorrupt": "Não foi possível ler o ficheiro de definições. Foi movido para {{path}} e o Orchard arrancou com as definições por omissão."
   },
   "sidebar": {
     "refresh": "Atualizar worktrees e PRs",
@@ -20,7 +21,8 @@
     "main": "main",
     "pinned": "Fixadas",
     "pin": "Fixar no topo",
-    "unpin": "Desafixar"
+    "unpin": "Desafixar",
+    "prError": "Estado dos PRs indisponível: {{error}}"
   },
   "worktree": {
     "detached": "HEAD destacado",
@@ -70,7 +72,7 @@
     "dirty_one": "Tem {{count}} alteração por fazer commit. Marca \"forçar\" para a descartar.",
     "dirty_other": "Tem {{count}} alterações por fazer commit. Marca \"forçar\" para as descartar.",
     "force": "Forçar (descarta alterações sem commit)",
-    "deleteBranch": "Apagar também a branch {{branch}}",
+    "deleteBranch": "Apagar também o branch local {{branch}} (o branch remoto nunca é apagado)",
     "confirm": "Remover"
   },
   "settings": {
