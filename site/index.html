@@ -45,7 +45,7 @@
           </a>
           <a class="btn btn-ghost" href="#how">How it works ↓</a>
         </div>
-        <p class="meta mono">v0.1.0 · build from source · free</p>
+        <p class="meta mono">v0.1.0 · install with Homebrew · free</p>
       </div>
       <div class="wrap">
         <div class="window window-shot">
@@ -206,32 +206,24 @@
       <div class="wrap split split-center">
         <div>
           <p class="eyebrow">Requirements &amp; install</p>
-          <h2>Build it from source.</h2>
-          <p class="lead">Orchard v0.1.0 has no packaged release yet. You'll need:</p>
+          <h2>Install with Homebrew.</h2>
+          <p class="lead">One command puts Orchard in <code>/Applications</code> and <code>orchard</code> on your PATH. You'll also need:</p>
           <ul class="checks">
             <li><code>macOS</code></li>
             <li><code>lazygit</code></li>
             <li><code>gh</code> signed in with <code>gh auth login</code></li>
             <li>An agent CLI, e.g. <code>Claude Code</code></li>
-            <li>To build: <code>Rust</code>, <code>Node.js</code>, <code>pnpm</code></li>
           </ul>
+          <p class="lead small-print">Orchard is not notarized by Apple. The cask removes the quarantine flag, so macOS opens the app without a Gatekeeper prompt. Install it only if you trust the <a href="https://github.com/rodpru/homebrew-tap">tap</a>, or <a href="https://github.com/rodpru/orchard#build-from-source">build it from source</a>.</p>
         </div>
         <div class="window terminal">
           <div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span class="mono">Terminal</span></div>
           <pre class="mono"><span class="muted"># requirements</span>
-<span class="amber">$</span> brew install lazygit gh rustup
-<span class="amber">$</span> rustup default stable
+<span class="amber">$</span> brew install lazygit gh
 <span class="amber">$</span> gh auth login
 
-<span class="muted"># build Orchard</span>
-<span class="amber">$</span> git clone https://github.com/rodpru/orchard.git
-<span class="amber">$</span> cd orchard
-<span class="amber">$</span> pnpm install
-<span class="amber">$</span> pnpm tauri build
-<span class="amber">$</span> cp -R src-tauri/target/release/bundle/macos/Orchard.app \
-    /Applications/
-<span class="amber">$</span> ln -s /Applications/Orchard.app/Contents/MacOS/orchard \
-    /opt/homebrew/bin/orchard
+<span class="muted"># install Orchard</span>
+<span class="amber">$</span> brew install --cask rodpru/tap/orchard
 
 <span class="muted"># then, from any repo</span>
 <span class="amber">$</span> orchard .</pre>

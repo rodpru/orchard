@@ -166,6 +166,8 @@ h2 {
 }
 h3 { font-size: 17px; font-weight: 600; line-height: 1.35; }
 .lead { margin-top: 16px; color: var(--muted); font-size: 17px; }
+.lead a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.small-print { margin-top: 24px; font-size: 14px; }
 
 .grid { display: grid; gap: 16px; margin-top: 48px; }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
