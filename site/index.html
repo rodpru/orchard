@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orchard — Run coding agents in parallel git worktrees</title>
-  <meta name="description" content="Orchard gives every task its own git worktree, with a coding agent working in it, extra shells, lazygit alongside, and the branch's PR and CI status. Open source, for macOS.">
+  <meta name="description" content="Orchard gives every task its own git worktree, with a coding agent working in it, extra shells, lazygit alongside, and the branch's PR and CI status. Open source, for macOS and Linux.">
   <meta property="og:title" content="Orchard — One task. One worktree. One agent.">
-  <meta property="og:description" content="Run coding agents in parallel git worktrees, on macOS. Open source, MIT.">
+  <meta property="og:description" content="Run coding agents in parallel git worktrees, on macOS and Linux. Open source, MIT.">
   <meta property="og:type" content="website">
   <link rel="canonical" href="https://rodpru.github.io/orchard/">
   <meta property="og:url" content="https://rodpru.github.io/orchard/">
@@ -35,9 +35,9 @@
   <main id="top">
     <section class="hero">
       <div class="wrap hero-inner">
-        <p class="pill">open source · macOS · MIT</p>
+        <p class="pill">open source · macOS · Linux · MIT</p>
         <h1>One task. One worktree.<br><span class="amber">One agent.</span></h1>
-        <p class="hero-sub mono">Run coding agents in parallel git worktrees, on macOS.</p>
+        <p class="hero-sub mono">Run coding agents in parallel git worktrees, on macOS and Linux.</p>
         <p class="hero-body">Every task gets its own git worktree, with a coding agent working in it, extra shells, lazygit alongside, and the branch's PR and CI status. A sidebar shows which agents are busy, which have news, and which need you. Everything runs locally.</p>
         <div class="cta-row">
           <a class="btn btn-primary" href="https://github.com/rodpru/orchard">
@@ -46,7 +46,7 @@
           </a>
           <a class="btn btn-ghost" href="#how">How it works ↓</a>
         </div>
-        <p class="meta mono">v0.1.0 · install with Homebrew · free</p>
+        <p class="meta mono">v0.1.0 · Homebrew on macOS · .deb on Linux · free</p>
       </div>
       <div class="wrap">
         <div class="window window-shot">
@@ -148,7 +148,7 @@
           <article class="card feature">
             <span class="icon cyan mono">⌘1</span>
             <h3>Keyboard first</h3>
-            <p>Pin worktrees, switch with <code>⌘1…⌘9</code>, open in your editor or Finder, or run <code>orchard .</code></p>
+            <p>Pin worktrees, switch with <code>⌘1…⌘9</code> (<code>Ctrl+Shift+1…9</code> on Linux), open in your editor or file manager, or run <code>orchard .</code></p>
           </article>
         </div>
         <p class="extras mono">drag a file into a terminal to paste its path · safe cleanup: asks before deleting the local branch, never deletes the remote · English &amp; Portuguese UI</p>
@@ -207,15 +207,15 @@
       <div class="wrap split split-center">
         <div>
           <p class="eyebrow">Requirements &amp; install</p>
-          <h2>Install with Homebrew.</h2>
-          <p class="lead">One command puts Orchard in <code>/Applications</code> and <code>orchard</code> on your PATH. You'll also need:</p>
+          <h2>Install on macOS or Linux.</h2>
+          <p class="lead">On macOS, Homebrew puts Orchard in <code>/Applications</code>. On Debian and Ubuntu, a <code>.deb</code> adds it to your app launcher. Both put <code>orchard</code> on your PATH. You'll also need:</p>
           <ul class="checks">
-            <li><code>macOS</code></li>
+            <li><code>macOS</code>, or <code>Linux</code>: Ubuntu 22.04+ / Debian 12+, x86_64</li>
             <li><code>lazygit</code></li>
             <li><code>gh</code> signed in with <code>gh auth login</code></li>
             <li>An agent CLI, e.g. <code>Claude Code</code></li>
           </ul>
-          <p class="lead small-print">Orchard is not notarized by Apple. The cask removes the quarantine flag, so macOS opens the app without a Gatekeeper prompt. Install it only if you trust the <a href="https://github.com/rodpru/homebrew-tap">tap</a>, or <a href="https://github.com/rodpru/orchard#build-from-source">build it from source</a>.</p>
+          <p class="lead small-print">Orchard is not notarized by Apple. The cask removes the quarantine flag, so macOS opens the app without a Gatekeeper prompt. Install it only if you trust the <a href="https://github.com/rodpru/homebrew-tap">tap</a>, or <a href="https://github.com/rodpru/orchard#build-from-source">build it from source</a>. Other Linux distributions can build from source too.</p>
         </div>
         <div class="window terminal">
           <div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span class="mono">Terminal</span></div>
@@ -223,8 +223,12 @@
 <span class="amber">$</span> brew install lazygit gh
 <span class="amber">$</span> gh auth login
 
-<span class="muted"># install Orchard</span>
+<span class="muted"># install Orchard on macOS</span>
 <span class="amber">$</span> brew install --cask rodpru/tap/orchard
+
+<span class="muted"># or on Debian / Ubuntu</span>
+<span class="amber">$</span> curl -fLO https://github.com/rodpru/orchard/releases/latest/download/orchard_amd64.deb
+<span class="amber">$</span> sudo apt install ./orchard_amd64.deb
 
 <span class="muted"># then, from any repo</span>
 <span class="amber">$</span> orchard .</pre>

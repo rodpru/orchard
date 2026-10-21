@@ -15,15 +15,11 @@ The sidebar shows which agents are busy, which have new output and which rang th
 
 ## Requirements
 
-- macOS, or Linux with WebKitGTK 4.1 (Ubuntu 22.04+, Debian 12+, Fedora 36+)
+- macOS, or Linux. The `.deb` is for Ubuntu 22.04+ and Debian 12+ on x86_64; on other distributions, [build from source](#build-from-source).
 - [`lazygit`](https://github.com/jesseduffield/lazygit) and [`gh`](https://cli.github.com) on your shell PATH, with `gh auth login` done
 - The agent CLI you want to use, for example `claude`
 
-To build it you also need Rust (`brew install rustup && rustup default stable`), Node and pnpm. On Linux, also the WebKitGTK headers; on Debian or Ubuntu:
-
-```bash
-sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev
-```
+On macOS, `brew install lazygit gh`. On Linux, Homebrew works too; otherwise follow the [`gh` Linux instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md) and the [`lazygit` install guide](https://github.com/jesseduffield/lazygit#installation).
 
 ## Install
 
@@ -35,15 +31,26 @@ brew install --cask rodpru/tap/orchard
 
 Orchard is not notarized by Apple. The cask removes the quarantine flag after install, so macOS opens the app without a Gatekeeper prompt. Install it only if you trust the [tap](https://github.com/rodpru/homebrew-tap).
 
-### Linux
-
-Download the `.deb` from the [latest release](https://github.com/rodpru/orchard/releases/latest) and install it:
+### Linux (Debian, Ubuntu)
 
 ```bash
-sudo apt install ./Orchard_*_amd64.deb
+curl -fLO https://github.com/rodpru/orchard/releases/latest/download/orchard_amd64.deb
+sudo apt install ./orchard_amd64.deb
 ```
 
+This adds Orchard to the application launcher and `orchard` to your PATH. apt installs WebKitGTK and GTK if they are missing. Run the same two commands to update, and `sudo apt remove orchard` to uninstall.
+
+If the window stays blank, try starting it with `WEBKIT_DISABLE_COMPOSITING_MODE=1 orchard`. Orchard already turns off WebKitGTK's DMA-BUF renderer, the usual cause on NVIDIA and some Wayland setups.
+
 ### Build from source
+
+You need Rust (via [rustup](https://rustup.rs)), Node and pnpm. On Linux you also need the WebKitGTK headers; on Debian or Ubuntu:
+
+```bash
+sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev
+```
+
+For other distributions, see the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#linux). Then:
 
 ```bash
 git clone https://github.com/rodpru/orchard.git
@@ -52,7 +59,7 @@ pnpm install
 pnpm tauri build
 ```
 
-On macOS, copy the app with `cp -R src-tauri/target/release/bundle/macos/Orchard.app /Applications/`; the build also produces a `.dmg` in `src-tauri/target/release/bundle/dmg/`. On Linux, install the `.deb` from `src-tauri/target/release/bundle/deb/`.
+On macOS, copy the app with `cp -R src-tauri/target/release/bundle/macos/Orchard.app /Applications/`; the build also produces a `.dmg` in `src-tauri/target/release/bundle/dmg/`. On Linux, install it with `sudo apt install ./src-tauri/target/release/bundle/deb/*.deb`. On distributions without apt, run the binary `src-tauri/target/release/orchard` directly.
 
 ## Use
 

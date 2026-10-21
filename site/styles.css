@@ -229,6 +229,9 @@ h3 { font-size: 17px; font-weight: 600; line-height: 1.35; }
   font-size: 13px;
   line-height: 1.85;
   overflow-x: auto;
+  /* Long commands such as the .deb URL wrap instead of scrolling; copying still yields one line. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Install */
