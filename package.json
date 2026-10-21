@@ -39,5 +39,6 @@
     "vitest": "^5.0.5"
   },
   "license": "MIT",
-  "repository": "github:rodpru/orchard"
+  "repository": "github:rodpru/orchard",
+  "packageManager": "pnpm@11.1.2"
 }
