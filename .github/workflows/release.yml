@@ -91,7 +91,11 @@ jobs:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
       - run: pnpm tauri build
+      # A fixed asset name, so releases/latest/download/orchard_amd64.deb always
+      # points at the newest version.
       - name: Upload the .deb to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" src-tauri/target/release/bundle/deb/*.deb --clobber
+        run: |
+          cp src-tauri/target/release/bundle/deb/*.deb orchard_amd64.deb
+          gh release upload "$GITHUB_REF_NAME" orchard_amd64.deb --clobber

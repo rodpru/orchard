@@ -25,6 +25,11 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "rodpru",
+    "homepage": "https://rodpru.github.io/orchard/",
+    "category": "DeveloperTool",
+    "shortDescription": "Run coding agents in parallel git worktrees",
+    "longDescription": "Orchard gives every task its own git worktree, with a coding agent working in it, extra shells, lazygit alongside, and the PR and CI status of its branch.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
