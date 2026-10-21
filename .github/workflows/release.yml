@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: pnpm install --frozen-lockfile
+      # Universal build: one .dmg for Apple Silicon and Intel, so the cask needs a single url.
+      - run: pnpm tauri build --target universal-apple-darwin
+      - name: Upload the .dmg to the GitHub Release
+        id: dmg
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          echo "sha256=$(shasum -a 256 "$dmg" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          gh release create "$GITHUB_REF_NAME" "$dmg" --title "$GITHUB_REF_NAME" --generate-notes
+      - uses: actions/checkout@v7
+        with:
+          repository: rodpru/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+      - name: Point the cask at the new release
+        working-directory: homebrew-tap
+        env:
+          SHA256: ${{ steps.dmg.outputs.sha256 }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sed -i '' -E \
+            -e "s/^  version \".*\"/  version \"$version\"/" \
+            -e "s/^  sha256 \".*\"/  sha256 \"$SHA256\"/" \
+            Casks/orchard.rb
+          # A re-run of the same tag leaves the cask unchanged.
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "orchard $version"
+          git push

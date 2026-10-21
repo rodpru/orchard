@@ -23,7 +23,13 @@ To build it you also need Rust (`brew install rustup && rustup default stable`),
 
 ## Install
 
-There are no prebuilt releases yet. Build it from source:
+```bash
+brew install --cask rodpru/tap/orchard
+```
+
+Orchard is not notarized by Apple. The cask removes the quarantine flag after install, so macOS opens the app without a Gatekeeper prompt. Install it only if you trust the [tap](https://github.com/rodpru/homebrew-tap).
+
+### Build from source
 
 ```bash
 git clone https://github.com/rodpru/orchard.git
@@ -44,8 +50,15 @@ The build also produces a `.dmg` in `src-tauri/target/release/bundle/dmg/`.
 
 ### Open a worktree from the terminal
 
+The Homebrew cask puts `orchard` on your PATH. If you built from source, link it yourself:
+
 ```bash
 ln -s /Applications/Orchard.app/Contents/MacOS/orchard /opt/homebrew/bin/orchard
+```
+
+Then:
+
+```bash
 orchard .
 ```
 
