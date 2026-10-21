@@ -10,6 +10,8 @@ use tauri::{Manager, RunEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    system::configure_webkit();
     system::adopt_login_shell_path();
 
     tauri::Builder::default()

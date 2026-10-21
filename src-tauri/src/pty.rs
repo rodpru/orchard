@@ -147,10 +147,6 @@ impl PtyState {
     }
 }
 
-fn user_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into())
-}
-
 fn pty_size(cols: u16, rows: u16) -> PtySize {
     PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }
 }
@@ -158,7 +154,7 @@ fn pty_size(cols: u16, rows: u16) -> PtySize {
 fn spawn(cwd: &str, command: Option<&str>, cols: u16, rows: u16) -> Result<Arc<Session>> {
     let pair = native_pty_system().openpty(pty_size(cols, rows)).map_err(Error::pty)?;
 
-    let shell = user_shell();
+    let shell = crate::system::user_shell();
     let mut cmd = CommandBuilder::new(&shell);
     match command {
         // Run the command inside a login shell, then fall back to an

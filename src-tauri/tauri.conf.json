@@ -16,9 +16,7 @@
         "width": 1440,
         "height": 900,
         "minWidth": 900,
-        "minHeight": 560,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "minHeight": 560
       }
     ],
     "security": {
@@ -27,19 +25,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "app",
-      "dmg"
-    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "macOS": {
-      "signingIdentity": "-"
-    }
+    ]
   }
 }

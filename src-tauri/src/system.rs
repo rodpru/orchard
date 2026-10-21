@@ -7,10 +7,17 @@ use std::time::Duration;
 /// A slow or hung shell rc file must not keep the window from opening.
 const SHELL_PATH_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// GUI apps on macOS start with a minimal PATH, so tools installed via
-/// Homebrew, nvm, cargo, etc. are invisible. Copy the login shell's PATH.
+/// The user's shell; `/bin/sh` when `SHELL` is unset, since not every Linux
+/// distribution ships zsh.
+pub fn user_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
+}
+
+/// GUI apps launched from the Dock or a desktop launcher start with a minimal
+/// PATH, so tools installed via Homebrew, nvm, cargo, ~/.local/bin, etc. are
+/// invisible. Copy the login shell's PATH.
 pub fn adopt_login_shell_path() {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let shell = user_shell();
     let Ok(mut child) = Command::new(&shell)
         .args(["-l", "-i", "-c", "printf '__ORCHARD__%s__ORCHARD__' \"$PATH\""])
         .stdin(Stdio::null())
@@ -39,6 +46,17 @@ pub fn adopt_login_shell_path() {
     if let Some(path) = out.split("__ORCHARD__").nth(1).filter(|p| !p.is_empty()) {
         // SAFETY: called once at startup; the only other thread was joined above.
         unsafe { std::env::set_var("PATH", path) };
+    }
+}
+
+/// WebKitGTK's DMA-BUF renderer shows a blank window on some NVIDIA and
+/// Wayland setups. Turn it off unless the user chose otherwise.
+#[cfg(target_os = "linux")]
+pub fn configure_webkit() {
+    const VAR: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
+    if std::env::var_os(VAR).is_none() {
+        // SAFETY: called at startup, before any other thread exists.
+        unsafe { std::env::set_var(VAR, "1") };
     }
 }
 
