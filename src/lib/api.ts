@@ -37,11 +37,23 @@ export const api = {
   openInEditor: (editor: string, path: string) => invoke<void>("open_in_editor", { editor, path }),
   revealInFinder: (path: string) => revealItemInDir(path),
   openUrl: async (url: string) => {
-    if (!url.startsWith("https://")) throw new Error("only https URLs are allowed");
+    if (!isOpenableUrl(url)) throw new Error("only https URLs and http://localhost are allowed");
     await openerOpenUrl(url);
   },
   startupPath: () => invoke<string | null>("startup_path"),
 };
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Any https URL, plus plain http to this machine (local dev servers). */
+export function isOpenableUrl(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" || (protocol === "http:" && LOCAL_HOSTS.has(hostname));
+  } catch {
+    return false;
+  }
+}
 
 function isIpcError(e: unknown): e is IpcError {
   return typeof e === "object" && e !== null && "kind" in e && "message" in e && typeof e.message === "string";

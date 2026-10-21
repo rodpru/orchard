@@ -1,4 +1,5 @@
 import { Channel } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal as XTerm } from "@xterm/xterm";
@@ -7,6 +8,7 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage, type PtyMessage } from "../lib/api";
 import type { SessionId } from "../lib/sessions";
+import { droppedPaths } from "../lib/shell";
 
 const THEME = {
   background: "#16171d",
@@ -146,6 +148,19 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
     });
     term.onBell(() => latest.current.onBell?.());
 
+    // Tauri takes file drops away from the page; paste the paths of files
+    // dropped on this terminal, as Terminal.app does. Agents such as Claude
+    // Code attach a pasted image path as an image.
+    const stopDrop = getCurrentWebview().onDragDropEvent(({ payload }) => {
+      if (disposed || exited || payload.type !== "drop" || payload.paths.length === 0) return;
+      const rect = container.getBoundingClientRect();
+      const x = payload.position.x / window.devicePixelRatio;
+      const y = payload.position.y / window.devicePixelRatio;
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+      term.paste(droppedPaths(payload.paths));
+      term.focus();
+    });
+
     const observer = new ResizeObserver(() => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) fit.fit();
     });
@@ -161,6 +176,7 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
 
     return () => {
       disposed = true;
+      void stopDrop.then((stop) => stop());
       observer.disconnect();
       if (token !== null) void api.ptyDetach(id, token).catch(() => undefined);
       term.dispose();
