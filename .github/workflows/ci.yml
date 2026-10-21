@@ -20,7 +20,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
 
-  rust:
+  rust-platform:
+    name: rust (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -49,3 +50,12 @@ jobs:
       - run: cargo test
       # Fails when the Rust IPC types changed but src/lib/bindings was not regenerated.
       - run: git diff --exit-code -- ../src/lib/bindings
+
+  # The "Protect main" ruleset requires a check named "rust"; the matrix jobs
+  # report as "rust (<os>)", so this job reports their combined result.
+  rust:
+    needs: rust-platform
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.rust-platform.result }}" = success
