@@ -9,6 +9,7 @@ import { usePrStatus } from "./hooks/usePrStatus";
 import { useSessionIndicators } from "./hooks/useSessionIndicators";
 import { useWorktrees } from "./hooks/useWorktrees";
 import { api, errorMessage } from "./lib/api";
+import { shortcutKey, shortcutLabel } from "./lib/platform";
 import type { Config, SessionInfo, Worktree } from "./lib/types";
 import "./styles.css";
 
@@ -177,17 +178,21 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (!event.metaKey || event.altKey || event.ctrlKey) return;
-      if (/^[1-9]$/.test(event.key)) {
-        const path = shortcutOrder[Number(event.key) - 1];
+      const key = shortcutKey(event);
+      if (key === null) return;
+      if (/^[1-9]$/.test(key)) {
+        const path = shortcutOrder[Number(key) - 1];
         if (path) {
+          // Keep the keystroke away from the focused terminal.
           event.preventDefault();
+          event.stopPropagation();
           select(path);
         }
-      } else if (event.key === "n" && !event.shiftKey) {
+      } else if (key === "n") {
         const repo = (selected && byPath[selected]?.repo) || repos[0];
         if (repo) {
           event.preventDefault();
+          event.stopPropagation();
           setDialog({ kind: "new", repo });
         }
       }
@@ -261,7 +266,7 @@ export default function App() {
             ) : (
               <>
                 <h1>{t("empty.pickTitle")}</h1>
-                <p>{t("empty.pickBody")}</p>
+                <p>{t("empty.pickBody", { shortcut: shortcutLabel("n") })}</p>
               </>
             )}
           </div>

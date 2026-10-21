@@ -7,6 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage, type PtyMessage } from "../lib/api";
+import { isMac } from "../lib/platform";
 import type { SessionId } from "../lib/sessions";
 import { droppedPaths } from "../lib/shell";
 
@@ -68,7 +69,7 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
     if (!container) return;
 
     const term = new XTerm({
-      fontFamily: '"SF Mono", Menlo, Monaco, monospace',
+      fontFamily: '"SF Mono", Menlo, Monaco, "DejaVu Sans Mono", "Liberation Mono", "Ubuntu Mono", monospace',
       fontSize: 13,
       lineHeight: 1.15,
       cursorBlink: true,
@@ -133,6 +134,24 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
       if (event.type === "keydown" && event.key === "Enter" && event.shiftKey && !exited) {
         void api.ptyWrite(id, "\x1b\r");
         return false;
+      }
+      // Without a macOS Edit menu there is no ⌘C/⌘V, so copy and paste with
+      // Ctrl+Shift+C/V like other Linux terminals; plain Ctrl+C stays SIGINT.
+      if (!isMac && event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
+        if (event.code === "KeyC") {
+          if (event.type === "keydown" && term.hasSelection()) {
+            void api.writeClipboard(term.getSelection()).catch(() => undefined);
+          }
+          event.preventDefault();
+          return false;
+        }
+        if (event.code === "KeyV") {
+          if (event.type === "keydown" && !exited) {
+            void api.readClipboard().then((text) => term.paste(text), () => undefined);
+          }
+          event.preventDefault();
+          return false;
+        }
       }
       return true;
     });

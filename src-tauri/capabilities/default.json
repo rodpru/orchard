@@ -44,6 +44,8 @@
       ]
     },
     "opener:allow-reveal-item-in-dir",
-    "dialog:default"
+    "dialog:default",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text"
   ]
 }

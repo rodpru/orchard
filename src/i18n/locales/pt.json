@@ -14,7 +14,7 @@
   "sidebar": {
     "refresh": "Atualizar worktrees e PRs",
     "settings": "Definições",
-    "newWorktree": "Nova worktree (⌘N)",
+    "newWorktree": "Nova worktree ({{shortcut}})",
     "removeRepo": "Remover repositório",
     "removeRepoConfirm": "Remover {{repo}} do Orchard? Os ficheiros e as worktrees no disco ficam.",
     "addRepo": "Adicionar repositório",
@@ -32,6 +32,7 @@
     "createPrTab": "criar PR",
     "openEditor": "Editor",
     "reveal": "Finder",
+    "revealFolder": "Pasta",
     "lazygit": "lazygit",
     "close": "Fechar",
     "closeHint": "Parar os terminais desta worktree",
@@ -95,6 +96,6 @@
     "welcomeTitle": "Corre agentes em worktrees paralelas",
     "welcomeBody": "Adiciona um repositório git e cria uma worktree por tarefa. Cada uma tem o seu terminal de agente e lazygit.",
     "pickTitle": "Escolhe uma worktree",
-    "pickBody": "Seleciona uma worktree na barra lateral ou carrega ⌘N para criar uma."
+    "pickBody": "Seleciona uma worktree na barra lateral ou carrega {{shortcut}} para criar uma."
   }
 }

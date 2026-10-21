@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { openUrl as openerOpenUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { SessionId } from "./sessions";
 import type { Branches, Config, IpcError, LoadedConfig, PrSummary, PtyEvent, SessionInfo, Worktree } from "./types";
@@ -41,6 +42,9 @@ export const api = {
     await openerOpenUrl(url);
   },
   startupPath: () => invoke<string | null>("startup_path"),
+
+  readClipboard: () => readText(),
+  writeClipboard: (text: string) => writeText(text),
 };
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);

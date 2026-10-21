@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { basename } from "../lib/api";
+import { shortcutBadge, shortcutLabel } from "../lib/platform";
 import type { PrSummary, Worktree } from "../lib/types";
 import { PrBadge } from "./PrBadge";
 
@@ -100,7 +101,7 @@ export function Sidebar(props: Props) {
         <span className="worktree-meta">
           {wt.changes > 0 && <span className="changes-count">±{wt.changes}</span>}
           {pr && <PrBadge summary={pr} compact />}
-          {index > 0 && index < 10 && <kbd>⌘{index}</kbd>}
+          {index > 0 && index < 10 && <kbd>{shortcutBadge(String(index))}</kbd>}
           <button
             className="pin-button"
             title={isPinned ? t("sidebar.unpin") : t("sidebar.pin")}
@@ -153,7 +154,7 @@ export function Sidebar(props: Props) {
                   <span className="chevron">{isCollapsed ? "▸" : "▾"}</span>
                   {basename(repo)}
                 </button>
-                <button className="icon" onClick={() => props.onNewWorktree(repo)} title={t("sidebar.newWorktree")}>
+                <button className="icon" onClick={() => props.onNewWorktree(repo)} title={t("sidebar.newWorktree", { shortcut: shortcutLabel("n") })}>
                   +
                 </button>
                 <button className="icon subtle" onClick={() => props.onRemoveRepo(repo)} title={t("sidebar.removeRepo")}>

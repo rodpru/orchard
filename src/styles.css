@@ -14,7 +14,7 @@
   --yellow: #e8c46c;
   --purple: #c49bf2;
   --radius: 6px;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, Cantarell, Ubuntu, sans-serif;
   font-size: 13px;
   color: var(--text);
   background: var(--bg);
@@ -132,8 +132,13 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8px 0 80px; /* room for the traffic lights */
+  padding: 0 8px 0 12px;
   flex-shrink: 0;
+}
+
+/* Room for the traffic lights over the overlay title bar. */
+.platform-mac .sidebar-header {
+  padding-left: 80px;
 }
 
 .app-name {

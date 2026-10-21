@@ -2,6 +2,7 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { memo, useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, basename, errorMessage } from "../lib/api";
+import { isMac } from "../lib/platform";
 import { type SessionId, sessionId, shellNumber } from "../lib/sessions";
 import type { Config, PrSummary, SessionInfo, Worktree } from "../lib/types";
 import { PrBadge } from "./PrBadge";
@@ -143,7 +144,7 @@ function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, 
           <button onClick={() => void api.openInEditor(config.editorCommand, path).catch(showError)}>
             {t("worktree.openEditor")}
           </button>
-          <button onClick={() => void api.revealInFinder(path).catch(showError)}>{t("worktree.reveal")}</button>
+          <button onClick={() => void api.revealInFinder(path).catch(showError)}>{t(isMac ? "worktree.reveal" : "worktree.revealFolder")}</button>
           <button className={showGit ? "toggled" : ""} onClick={() => setShowGit((v) => !v)}>
             {t("worktree.lazygit")}
           </button>
