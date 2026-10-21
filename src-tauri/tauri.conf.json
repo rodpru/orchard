@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Orchard",
   "version": "0.1.0",
-  "identifier": "dev.orchard.app",
+  "identifier": "io.github.rodpru.orchard",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",

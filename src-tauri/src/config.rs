@@ -7,6 +7,8 @@ use tauri::{AppHandle, Manager};
 use ts_rs::TS;
 
 const CONFIG_VERSION: u32 = 1;
+/// Bundle identifier of the first builds; its config is copied over once.
+const LEGACY_IDENTIFIER: &str = "dev.orchard.app";
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -57,7 +59,20 @@ impl Default for Config {
 fn config_path(app: &AppHandle) -> Result<PathBuf> {
     let dir = app.path().app_config_dir().map_err(|e| crate::error::Error::Invalid(e.to_string()))?;
     fs::create_dir_all(&dir)?;
-    Ok(dir.join("config.json"))
+    let path = dir.join("config.json");
+    if let Some(parent) = dir.parent() {
+        migrate_legacy(&path, &parent.join(LEGACY_IDENTIFIER).join("config.json"))?;
+    }
+    Ok(path)
+}
+
+/// Copies the config written under the old bundle identifier when the new
+/// location has none yet. The old file is left in place as a backup.
+fn migrate_legacy(path: &Path, legacy: &Path) -> Result<()> {
+    if path != legacy && !path.exists() && legacy.exists() {
+        fs::copy(legacy, path)?;
+    }
+    Ok(())
 }
 
 #[derive(Serialize, TS, PartialEq, Debug)]
@@ -117,6 +132,22 @@ pub async fn config_save(app: AppHandle, config: Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_config_is_copied_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join("old.json");
+        let path = dir.path().join("config.json");
+        fs::write(&legacy, r#"{"repos":["/r"]}"#).unwrap();
+        migrate_legacy(&path, &legacy).unwrap();
+        assert_eq!(load(&path).unwrap().config.repos, vec!["/r".to_string()]);
+        assert!(legacy.exists());
+
+        // An existing config is never overwritten by the legacy one.
+        fs::write(&legacy, r#"{"repos":["/other"]}"#).unwrap();
+        migrate_legacy(&path, &legacy).unwrap();
+        assert_eq!(load(&path).unwrap().config.repos, vec!["/r".to_string()]);
+    }
 
     #[test]
     fn missing_file_gives_defaults() {
