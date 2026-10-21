@@ -8,7 +8,9 @@
   <meta property="og:title" content="Orchard — One task. One worktree. One agent.">
   <meta property="og:description" content="Run coding agents in parallel git worktrees, on macOS. Open source, MIT.">
   <meta property="og:type" content="website">
-  <meta property="og:image" content="icon.png">
+  <meta property="og:url" content="https://rodpru.github.io/orchard/">
+  <meta property="og:image" content="https://rodpru.github.io/orchard/icon.png">
+  <meta name="twitter:card" content="summary">
   <meta name="theme-color" content="#0E0E0E">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -46,14 +48,8 @@
         <p class="meta mono">v0.1.0 · build from source · free</p>
       </div>
       <div class="wrap">
-        <div class="window">
-          <div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span class="mono">Orchard — demo-repo</span></div>
-          <div class="placeholder placeholder-shot">
-            <span class="tag">placeholder · screenshot</span>
-            <strong>Main app screenshot</strong>
-            <p>Demo repository with 3–4 active worktrees. Sidebar showing the indicators: busy, new output, bell. Agent terminal + lazygit visible. No private chats or emails.</p>
-            <p class="mono small">2880×1800 · dark theme · replace this box with &lt;img src="screenshot.png"&gt;</p>
-          </div>
+        <div class="window window-shot">
+          <img src="screenshot.png" alt="Orchard window: worktree sidebar, a Claude Code agent terminal, and lazygit side by side" width="1475" height="869">
         </div>
       </div>
     </section>
@@ -87,32 +83,24 @@
       <div class="wrap">
         <p class="eyebrow">How it works</p>
         <h2>From shortcut to pull request.</h2>
-        <div class="split">
-          <ol class="steps">
-            <li class="card step">
-              <span class="key amber mono">⌘N</span>
-              <div><h3>New worktree</h3><p>Pick a new or existing branch. Orchard creates the git worktree.</p></div>
-            </li>
-            <li class="card step">
-              <span class="key cyan mono">▸</span>
-              <div><h3>The agent starts</h3><p>Your agent CLI launches inside that worktree — Claude Code, Codex, opencode, or anything that runs in a terminal.</p></div>
-            </li>
-            <li class="card step">
-              <span class="key cyan mono">●</span>
-              <div><h3>The sidebar lights up</h3><p>See at a glance which agents are busy, have new output, or rang the bell.</p></div>
-            </li>
-            <li class="card step">
-              <span class="key amber mono">PR</span>
-              <div><h3>Create PR</h3><p>Review the diff in lazygit, then push and open the PR from the app. Remove the worktree when you're done.</p></div>
-            </li>
-          </ol>
-          <div class="placeholder placeholder-video">
-            <span class="tag">placeholder · gif / video</span>
-            <strong>20–30 s demo loop</strong>
-            <p>⌘N → agent starts in the new worktree → sidebar indicators light up → Create PR.</p>
-            <p class="mono small">MP4/WebM loop, muted, ≤ 4 MB</p>
-          </div>
-        </div>
+        <ol class="grid grid-4 steps">
+          <li class="card step">
+            <span class="key amber mono">⌘N</span>
+            <div><h3>New worktree</h3><p>Pick a new or existing branch. Orchard creates the git worktree.</p></div>
+          </li>
+          <li class="card step">
+            <span class="key cyan mono">▸</span>
+            <div><h3>The agent starts</h3><p>Your agent CLI launches inside that worktree — Claude Code, Codex, opencode, or anything that runs in a terminal.</p></div>
+          </li>
+          <li class="card step">
+            <span class="key cyan mono">●</span>
+            <div><h3>The sidebar lights up</h3><p>See at a glance which agents are busy, have new output, or rang the bell.</p></div>
+          </li>
+          <li class="card step">
+            <span class="key amber mono">PR</span>
+            <div><h3>Create PR</h3><p>Review the diff in lazygit, then push and open the PR from the app. Remove the worktree when you're done.</p></div>
+          </li>
+        </ol>
       </div>
     </section>
 
