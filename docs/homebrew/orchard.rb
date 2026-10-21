@@ -6,7 +6,7 @@ cask "orchard" do
   url "https://github.com/rodpru/orchard/releases/download/v#{version}/Orchard_#{version}_universal.dmg"
   name "Orchard"
   desc "Run coding agents in parallel git worktrees"
-  homepage "https://github.com/rodpru/orchard"
+  homepage "https://rodpru.github.io/orchard/"
 
   livecheck do
     url :url
