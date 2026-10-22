@@ -36,6 +36,7 @@ pub fn run() {
             config::config_load,
             config::config_save,
             system::open_in_editor,
+            system::command_exists,
             system::startup_path,
         ])
         .build(tauri::generate_context!())

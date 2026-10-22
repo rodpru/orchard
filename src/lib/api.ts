@@ -36,6 +36,8 @@ export const api = {
   ptyList: () => invoke<SessionInfo[]>("pty_list"),
 
   openInEditor: (editor: string, path: string) => invoke<void>("open_in_editor", { editor, path }),
+  /** Whether the login shell finds the command's program; true when the check cannot tell. */
+  commandExists: (command: string) => invoke<boolean>("command_exists", { command }),
   revealInFinder: (path: string) => revealItemInDir(path),
   openUrl: async (url: string) => {
     if (!isOpenableUrl(url)) throw new Error("only https URLs and http://localhost are allowed");

@@ -13,6 +13,7 @@ cask "orchard" do
     strategy :github_latest
   end
 
+  depends_on formula: ["lazygit", "gh"]
   depends_on :macos
 
   app "Orchard.app"

@@ -19,7 +19,7 @@ The sidebar shows which agents are busy, which have new output and which rang th
 - [`lazygit`](https://github.com/jesseduffield/lazygit) and [`gh`](https://cli.github.com) on your shell PATH, with `gh auth login` done
 - The agent CLI you want to use, for example `claude`
 
-On macOS, `brew install lazygit gh`. On Linux, Homebrew works too; otherwise follow the [`gh` Linux instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md) and the [`lazygit` install guide](https://github.com/jesseduffield/lazygit#installation).
+The Homebrew cask installs `lazygit` and `gh` for you. The `.deb` recommends both, so apt installs them where your distribution packages them: `gh` on every supported release, `lazygit` on Debian 13 and Ubuntu 25.04 or later. Otherwise, install `lazygit` with Homebrew or from its [install guide](https://github.com/jesseduffield/lazygit#installation); if it is missing, the lazygit pane says so. Either way, run `gh auth login` once.
 
 ## Install
 

@@ -1,6 +1,7 @@
 import { message } from "@tauri-apps/plugin-dialog";
 import { memo, useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useCommandExists } from "../hooks/useCommandExists";
 import { api, basename, errorMessage } from "../lib/api";
 import { isMac } from "../lib/platform";
 import { type SessionId, sessionId, shellNumber } from "../lib/sessions";
@@ -33,6 +34,7 @@ interface Props {
 }
 
 const CREATE_PR_COMMAND = "git push -u origin HEAD && gh pr create --web";
+const LAZYGIT_INSTALL_URL = "https://github.com/jesseduffield/lazygit#installation";
 
 const showError = (e: unknown) => void message(errorMessage(e), { kind: "error" });
 
@@ -65,6 +67,8 @@ function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, 
   const [showGit, setShowGit] = useState(true);
   const [split, setSplit] = useState(58);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const lazygitCommand = config.lazygitCommand || "lazygit";
+  const lazygit = useCommandExists(lazygitCommand);
 
   const addShell = useCallback(
     (command: string | null = null, label?: string) => {
@@ -210,14 +214,23 @@ function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, 
             <div className="tab active static">{t("worktree.lazygit")}</div>
           </div>
           <div className="pane-content">
-            <div className="terminal-slot">
-              <Terminal
-                id={sessionId.lazygit(path)}
-                cwd={path}
-                command={config.lazygitCommand || "lazygit"}
-                active={false}
-              />
-            </div>
+            {lazygit.exists && (
+              <div className="terminal-slot">
+                <Terminal id={sessionId.lazygit(path)} cwd={path} command={lazygitCommand} active={false} />
+              </div>
+            )}
+            {lazygit.exists === false && (
+              <div className="empty">
+                <h1>{t("worktree.lazygitMissing")}</h1>
+                <p>{t(isMac ? "worktree.lazygitInstallMac" : "worktree.lazygitInstallLinux", { command: lazygitCommand })}</p>
+                <div className="empty-actions">
+                  <button onClick={lazygit.recheck}>{t("worktree.lazygitRetry")}</button>
+                  <button onClick={() => void api.openUrl(LAZYGIT_INSTALL_URL).catch(showError)}>
+                    {t("worktree.lazygitGuide")}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

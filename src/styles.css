@@ -509,6 +509,11 @@ kbd {
   margin: 8px 0 16px;
 }
 
+.empty-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .fatal {
   height: 100%;
   display: flex;

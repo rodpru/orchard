@@ -208,10 +208,10 @@
         <div>
           <p class="eyebrow">Requirements &amp; install</p>
           <h2>Install on macOS or Linux.</h2>
-          <p class="lead">On macOS, Homebrew puts Orchard in <code>/Applications</code>. On Debian and Ubuntu, a <code>.deb</code> adds it to your app launcher. Both put <code>orchard</code> on your PATH. You'll also need:</p>
+          <p class="lead">On macOS, Homebrew puts Orchard in <code>/Applications</code> and installs <code>lazygit</code> and <code>gh</code> with it. On Debian and Ubuntu, a <code>.deb</code> adds it to your app launcher and apt brings <code>gh</code>, plus <code>lazygit</code> on Debian 13 and Ubuntu 25.04+. Both put <code>orchard</code> on your PATH. You'll also need:</p>
           <ul class="checks">
             <li><code>macOS</code>, or <code>Linux</code>: Ubuntu 22.04+ / Debian 12+, x86_64</li>
-            <li><code>lazygit</code></li>
+            <li><code>lazygit</code>, if your distribution doesn't package it (<a href="https://github.com/jesseduffield/lazygit#installation">install guide</a>)</li>
             <li><code>gh</code> signed in with <code>gh auth login</code></li>
             <li>An agent CLI, e.g. <code>Claude Code</code></li>
           </ul>
@@ -219,16 +219,15 @@
         </div>
         <div class="window terminal">
           <div class="window-bar"><span class="dots"><i></i><i></i><i></i></span><span class="mono">Terminal</span></div>
-          <pre class="mono"><span class="muted"># requirements</span>
-<span class="amber">$</span> brew install lazygit gh
-<span class="amber">$</span> gh auth login
-
-<span class="muted"># install Orchard on macOS</span>
+          <pre class="mono"><span class="muted"># install Orchard on macOS (brings lazygit and gh)</span>
 <span class="amber">$</span> brew install --cask rodpru/tap/orchard
 
 <span class="muted"># or on Debian / Ubuntu</span>
 <span class="amber">$</span> curl -fLO https://github.com/rodpru/orchard/releases/latest/download/orchard_amd64.deb
 <span class="amber">$</span> sudo apt install ./orchard_amd64.deb
+
+<span class="muted"># sign in to GitHub once</span>
+<span class="amber">$</span> gh auth login
 
 <span class="muted"># then, from any repo</span>
 <span class="amber">$</span> orchard .</pre>

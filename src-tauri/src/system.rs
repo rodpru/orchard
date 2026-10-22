@@ -6,6 +6,7 @@ use std::time::Duration;
 
 /// A slow or hung shell rc file must not keep the window from opening.
 const SHELL_PATH_TIMEOUT: Duration = Duration::from_secs(2);
+const COMMAND_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The user's shell; `/bin/sh` when `SHELL` is unset, since not every Linux
 /// distribution ships zsh.
@@ -85,6 +86,32 @@ pub async fn open_in_editor(editor: String, path: String) -> Result<()> {
         .map_err(|source| Error::Spawn { program: argv[0].clone(), source })
 }
 
+/// The program a configured command starts: its first word, split like a shell would.
+fn command_program(command: &str) -> Option<String> {
+    shell_words::split(command.trim()).ok()?.into_iter().next()
+}
+
+/// Whether the login shell can run `command`, checked the same way the
+/// terminal panes start it, so aliases and shell functions count. Anything
+/// that keeps the check from answering counts as found: the pane then shows
+/// the shell's own error instead of a wrong "not installed" notice.
+#[tauri::command]
+pub async fn command_exists(command: String) -> bool {
+    let Some(program) = command_program(&command) else { return true };
+    let check = format!("command -v -- {} >/dev/null", shell_words::quote(&program));
+    let status = tokio::process::Command::new(user_shell())
+        .args(["-l", "-i", "-c", &check])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .status();
+    match tokio::time::timeout(COMMAND_CHECK_TIMEOUT, status).await {
+        Ok(Ok(status)) => status.success(),
+        _ => true,
+    }
+}
+
 /// First positional CLI argument as an absolute path, so `orchard .` from a
 /// terminal opens that worktree.
 #[tauri::command]
@@ -102,5 +129,14 @@ mod tests {
         assert_eq!(editor_argv("code --wait", "/a b").unwrap(), ["code", "--wait", "/a b"]);
         assert_eq!(editor_argv("'/Applications/My Editor' -n", "/p").unwrap(), ["/Applications/My Editor", "-n", "/p"]);
         assert!(editor_argv("  ", "/p").is_err());
+    }
+
+    #[test]
+    fn command_program_is_the_first_word() {
+        assert_eq!(command_program("lazygit").as_deref(), Some("lazygit"));
+        assert_eq!(command_program("  lazygit --use-config-file x.yml").as_deref(), Some("lazygit"));
+        assert_eq!(command_program("'/opt/my tools/lazygit' -p .").as_deref(), Some("/opt/my tools/lazygit"));
+        assert_eq!(command_program("   "), None);
+        assert_eq!(command_program("'unclosed"), None);
     }
 }
