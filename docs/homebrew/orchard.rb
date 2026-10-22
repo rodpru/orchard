@@ -1,7 +1,7 @@
 # Copy of Casks/orchard.rb in rodpru/homebrew-tap. Update version and sha256 on each release.
 cask "orchard" do
-  version "0.2.0"
-  sha256 "940a976c967533afa7cef70d2096a67d01b166c29ea3d979c773a9a8e2655ddd"
+  version "0.2.1"
+  sha256 "dc1383ddd4bd3d296ff6d5a703e3f06fd4b15ab16cbfeef58a6ab2815a0c1f44"
 
   url "https://github.com/rodpru/orchard/releases/download/v#{version}/Orchard_#{version}_universal.dmg"
   name "Orchard"
