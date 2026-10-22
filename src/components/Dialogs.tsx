@@ -229,6 +229,15 @@ export function SettingsDialog({ config, onCancel, onSave }: SettingsProps) {
             ))}
           </select>
         </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={draft.autoUpdate}
+            onChange={(e) => setDraft({ ...draft, autoUpdate: e.target.checked })}
+          />
+          {t("settings.autoUpdate")}
+        </label>
+        <small>{t("settings.autoUpdateHint")}</small>
         <div className="modal-actions">
           <button type="button" onClick={onCancel}>
             {t("common.cancel")}

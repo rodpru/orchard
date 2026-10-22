@@ -92,10 +92,17 @@
     "worktreeRootHint": "Vazio: <repo>.worktrees ao lado do repositório. Senão <pasta>/<repo>/<branch>.",
     "language": "Idioma",
     "languageAuto": "Sistema",
+    "autoUpdate": "Atualizar automaticamente",
+    "autoUpdateHint": "Procura novas versões nos GitHub Releases e instala-as em segundo plano; ficam ativas na próxima vez que o Orchard abrir. No Linux confirmas cada instalação com a tua palavra-passe.",
     "languages": {
       "en": "English",
       "pt": "Português"
     }
+  },
+  "update": {
+    "available": "Atualização {{version}} disponível",
+    "availableHint": "Abre a página da release. Instala o novo .deb com: sudo apt install ./orchard_amd64.deb",
+    "openFailed": "Não foi possível abrir a página da release"
   },
   "empty": {
     "welcomeTitle": "Corre agentes em worktrees paralelas",

@@ -27,6 +27,9 @@ interface Props {
   onRemoveRepo: (repo: string) => void;
   onRefresh: () => void;
   onSettings: () => void;
+  /** Linux: a newer release the user installs from the release page. */
+  updateAvailable: string | null;
+  onOpenUpdate: () => void;
 }
 
 export function PinIcon({ filled }: { filled: boolean }) {
@@ -174,6 +177,11 @@ export function Sidebar(props: Props) {
       </div>
 
       <div className="sidebar-footer">
+        {props.updateAvailable && (
+          <button className="primary" onClick={props.onOpenUpdate} title={t("update.availableHint")}>
+            {t("update.available", { version: props.updateAvailable })}
+          </button>
+        )}
         <button onClick={props.onAddRepo}>{t("sidebar.addRepo")}</button>
       </div>
     </aside>

@@ -16,6 +16,12 @@ export function useConfig() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const current = useRef<Config | null>(null);
   const saving = useRef<Promise<void>>(Promise.resolve());
+  // `t` changes identity with the language; read it through a ref so a
+  // language change never reloads the file under a save still in flight.
+  const latestT = useRef(t);
+  useEffect(() => {
+    latestT.current = t;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -26,14 +32,14 @@ export function useConfig() {
         current.current = loaded;
         setConfig(loaded);
         if (corruptBackup) {
-          void message(t("errors.configCorrupt", { path: corruptBackup }), { kind: "warning" });
+          void message(latestT.current("errors.configCorrupt", { path: corruptBackup }), { kind: "warning" });
         }
       })
       .catch((e: unknown) => !cancelled && setLoadError(errorMessage(e)));
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, []);
 
   const language = config?.language ?? null;
   useEffect(() => {

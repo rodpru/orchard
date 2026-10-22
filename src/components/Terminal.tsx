@@ -2,6 +2,7 @@ import { Channel } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
@@ -77,11 +78,23 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
       macOptionIsMeta: true,
       allowProposedApi: true,
       theme: THEME,
+      // OSC 8 links printed by programs go through the same allowlist as
+      // plain URLs; xterm's default would window.open whatever they name.
+      linkHandler: { activate: (_event, uri) => void api.openUrl(uri).catch(() => undefined) },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon((_event, uri) => void api.openUrl(uri).catch(() => undefined)));
     term.open(container);
+    // The DOM renderer rebuilds every row a TUI redraws; WebGL draws them on
+    // the GPU. Some WebKitGTK builds have no WebGL2, so the DOM renderer stays.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch {
+      // DOM renderer
+    }
     if (container.offsetWidth > 0) fit.fit();
     instanceRef.current = { term, fit };
 

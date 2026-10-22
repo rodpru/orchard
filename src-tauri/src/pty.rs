@@ -14,6 +14,7 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
+use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -26,6 +27,10 @@ const SCROLLBACK_BYTES: usize = 2 * 1024 * 1024;
 /// How long a process gets to exit after SIGHUP before it is SIGKILLed.
 const KILL_GRACE: Duration = Duration::from_secs(1);
 const QUIT_GRACE: Duration = Duration::from_millis(300);
+/// A PTY hands out a few KB per read and every push is one IPC message, so a
+/// burst is gathered up to this size, waiting this long between reads.
+const READ_BATCH_BYTES: usize = 64 * 1024;
+const READ_BATCH_WAIT: Duration = Duration::from_millis(4);
 
 /// Non-output events. Output itself is sent as raw bytes (an `ArrayBuffer`
 /// in the webview), which avoids escaping every chunk into JSON.
@@ -56,8 +61,8 @@ struct Output {
 }
 
 impl Output {
-    fn push(&mut self, bytes: &[u8]) {
-        self.scrollback.extend(bytes);
+    fn push(&mut self, bytes: Vec<u8>) {
+        self.scrollback.extend(&bytes);
         if self.scrollback.len() > SCROLLBACK_BYTES {
             self.scrollback.drain(..self.scrollback.len() - SCROLLBACK_BYTES);
             // Never start the replay in the middle of a UTF-8 character.
@@ -65,7 +70,7 @@ impl Output {
                 self.scrollback.pop_front();
             }
         }
-        self.send(InvokeResponseBody::Raw(bytes.to_vec()));
+        self.send(InvokeResponseBody::Raw(bytes));
     }
 
     fn send(&mut self, body: InvokeResponseBody) {
@@ -151,6 +156,22 @@ fn pty_size(cols: u16, rows: u16) -> PtySize {
     PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }
 }
 
+/// Whether `fd` has output waiting, polling for at most `wait`. `select`
+/// rather than `poll`: macOS `poll` does not report pty devices reliably.
+fn readable(fd: RawFd, wait: Duration) -> bool {
+    if fd < 0 || fd >= libc::FD_SETSIZE as RawFd {
+        return false;
+    }
+    let mut timeout = libc::timeval { tv_sec: wait.as_secs() as _, tv_usec: wait.subsec_micros() as _ };
+    // SAFETY: a zeroed fd_set is valid, `fd` is below FD_SETSIZE, and both
+    // outlive the calls.
+    unsafe {
+        let mut set = std::mem::zeroed::<libc::fd_set>();
+        libc::FD_SET(fd, &mut set);
+        libc::select(fd + 1, &mut set, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout) > 0
+    }
+}
+
 fn spawn(cwd: &str, command: Option<&str>, cols: u16, rows: u16) -> Result<Arc<Session>> {
     let pair = native_pty_system().openpty(pty_size(cols, rows)).map_err(Error::pty)?;
 
@@ -163,6 +184,7 @@ fn spawn(cwd: &str, command: Option<&str>, cols: u16, rows: u16) -> Result<Arc<S
         None => cmd.args(["-l", "-i"]),
     }
     cmd.cwd(cwd);
+    cmd.env("PATH", crate::system::path());
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "orchard");
@@ -174,6 +196,7 @@ fn spawn(cwd: &str, command: Option<&str>, cols: u16, rows: u16) -> Result<Arc<S
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader().map_err(Error::pty)?;
     let mut writer = pair.master.take_writer().map_err(Error::pty)?;
+    let fd = pair.master.as_raw_fd();
 
     let (input, keystrokes) = mpsc::channel::<Vec<u8>>();
     std::thread::spawn(move || {
@@ -198,10 +221,25 @@ fn spawn(cwd: &str, command: Option<&str>, cols: u16, rows: u16) -> Result<Arc<S
     let reading = Arc::clone(&session);
     std::thread::spawn(move || {
         let mut buf = [0u8; 16 * 1024];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => reading.output.lock().unwrap().push(&buf[..n]),
+        let mut open = true;
+        while open {
+            // Keep reading while more output arrives within READ_BATCH_WAIT, so
+            // a burst crosses the IPC bridge as one message, not one per read.
+            let mut chunk = Vec::new();
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) | Err(_) => {
+                        open = false;
+                        break;
+                    }
+                    Ok(n) => chunk.extend_from_slice(&buf[..n]),
+                }
+                if chunk.len() >= READ_BATCH_BYTES || !fd.is_some_and(|fd| readable(fd, READ_BATCH_WAIT)) {
+                    break;
+                }
+            }
+            if !chunk.is_empty() {
+                reading.output.lock().unwrap().push(chunk);
             }
         }
         let code = child.wait().ok().map(|status| status.exit_code());
@@ -333,11 +371,25 @@ mod tests {
     #[test]
     fn scrollback_is_capped_on_a_char_boundary() {
         let mut output = Output::default();
-        output.push(&vec![b'a'; SCROLLBACK_BYTES - 1]);
-        output.push("é!".as_bytes()); // 2-byte char straddles the cap
-        output.push(b"z");
+        output.push(vec![b'a'; SCROLLBACK_BYTES - 1]);
+        output.push("é!".as_bytes().to_vec()); // 2-byte char straddles the cap
+        output.push(b"z".to_vec());
         assert!(output.scrollback.len() <= SCROLLBACK_BYTES);
         assert_ne!(output.scrollback.front().unwrap() & 0b1100_0000, 0b1000_0000);
+    }
+
+    #[test]
+    fn readable_sees_pending_bytes_and_times_out_without_them() {
+        let mut fds = [0 as RawFd; 2];
+        // SAFETY: a fresh pipe; both ends are closed before returning.
+        unsafe {
+            assert_eq!(libc::pipe(fds.as_mut_ptr()), 0);
+            assert!(!readable(fds[0], Duration::from_millis(5)));
+            assert_eq!(libc::write(fds[1], b"x".as_ptr().cast(), 1), 1);
+            assert!(readable(fds[0], Duration::from_millis(5)));
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
     }
 
     #[test]

@@ -65,6 +65,10 @@ function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, 
   const [tabs, setTabs] = useState<Tab[]>(initial.tabs);
   const [activeTab, setActiveTab] = useState(tabs[0].id);
   const [showGit, setShowGit] = useState(true);
+  // lazygit starts the first time its pane is actually on screen, not for
+  // every worktree opened in the background.
+  const [gitStarted, setGitStarted] = useState(false);
+  if (active && showGit && !gitStarted) setGitStarted(true);
   const [split, setSplit] = useState(58);
   const bodyRef = useRef<HTMLDivElement>(null);
   const lazygitCommand = config.lazygitCommand || "lazygit";
@@ -214,7 +218,7 @@ function WorktreeViewImpl({ worktree, config, agentCommand, active, pr, pinned, 
             <div className="tab active static">{t("worktree.lazygit")}</div>
           </div>
           <div className="pane-content">
-            {lazygit.exists && (
+            {lazygit.exists && gitStarted && (
               <div className="terminal-slot">
                 <Terminal id={sessionId.lazygit(path)} cwd={path} command={lazygitCommand} active={false} />
               </div>

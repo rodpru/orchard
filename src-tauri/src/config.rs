@@ -39,6 +39,8 @@ pub struct Config {
     pub worktree_root: String,
     #[serde(deserialize_with = "lenient_language")]
     pub language: Option<Language>,
+    /// Check GitHub Releases for a new version and install it in the background.
+    pub auto_update: bool,
 }
 
 impl Default for Config {
@@ -52,6 +54,7 @@ impl Default for Config {
             editor_command: "code".into(),
             worktree_root: String::new(),
             language: None,
+            auto_update: true,
         }
     }
 }
@@ -165,6 +168,7 @@ mod tests {
         assert_eq!(config.repos, vec!["/r".to_string()]);
         assert_eq!(config.language, None);
         assert_eq!(config.agent_command, "claude");
+        assert!(config.auto_update);
 
         save(&path, &Config { language: Some(Language::Pt), ..config }).unwrap();
         let back = load(&path).unwrap().config;

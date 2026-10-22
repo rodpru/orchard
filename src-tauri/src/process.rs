@@ -8,6 +8,7 @@ use tokio::process::Command;
 pub async fn run(cwd: &Path, program: &str, args: &[&str], env: &[(&str, &str)]) -> Result<String> {
     let output = Command::new(program)
         .args(args)
+        .env("PATH", crate::system::path())
         .envs(env.iter().copied())
         .current_dir(cwd)
         .kill_on_drop(true)

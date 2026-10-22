@@ -7,7 +7,7 @@ on:
 
 jobs:
   frontend:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -46,8 +46,10 @@ jobs:
       # tauri::generate_context! needs the frontend build output to exist.
       - run: mkdir -p ../dist
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+      # --locked: a Cargo.toml change without its Cargo.lock update fails here,
+      # instead of every build resolving the new crates afresh.
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
       # Fails when the Rust IPC types changed but src/lib/bindings was not regenerated.
       - run: git diff --exit-code -- ../src/lib/bindings
 

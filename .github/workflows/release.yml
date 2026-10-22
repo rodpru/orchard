@@ -9,6 +9,8 @@ permissions:
 
 jobs:
   # The platform jobs upload into this release, so neither races to create it.
+  # It stays a draft until every asset is up: "latest" never points at a
+  # release that is still building or whose build failed.
   release:
     runs-on: ubuntu-latest
     steps:
@@ -18,11 +20,14 @@ jobs:
         run: |
           # A re-run of the same tag reuses the existing release.
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --draft
 
   macos:
     needs: release
     runs-on: macos-latest
+    outputs:
+      signature: ${{ steps.dmg.outputs.signature }}
+      sha256: ${{ steps.dmg.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -38,42 +43,30 @@ jobs:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
       # Universal build: one .dmg for Apple Silicon and Intel, so the cask needs a single url.
-      - run: pnpm tauri build --target universal-apple-darwin
-      - name: Upload the .dmg to the GitHub Release
+      # The release config signs the updater archive.
+      - run: pnpm exec tauri build --target universal-apple-darwin --config src-tauri/tauri.release.conf.json -- --locked
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Upload the .dmg and the updater archive to the GitHub Release
         id: dmg
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          bundle=src-tauri/target/universal-apple-darwin/release/bundle
+          dmg=$(ls "$bundle"/dmg/*.dmg)
           echo "sha256=$(shasum -a 256 "$dmg" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-          gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
-      - uses: actions/checkout@v7
-        with:
-          repository: rodpru/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-tap
-      - name: Point the cask at the new release
-        working-directory: homebrew-tap
-        env:
-          SHA256: ${{ steps.dmg.outputs.sha256 }}
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          sed -i '' -E \
-            -e "s/^  version \".*\"/  version \"$version\"/" \
-            -e "s/^  sha256 \".*\"/  sha256 \"$SHA256\"/" \
-            Casks/orchard.rb
-          # A re-run of the same tag leaves the cask unchanged.
-          if git diff --quiet; then exit 0; fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "orchard $version"
-          git push
+          echo "signature=$(cat "$bundle/macos/Orchard.app.tar.gz.sig")" >> "$GITHUB_OUTPUT"
+          cp "$bundle/macos/Orchard.app.tar.gz" Orchard_universal.app.tar.gz
+          gh release upload "$GITHUB_REF_NAME" "$dmg" Orchard_universal.app.tar.gz --clobber
 
   linux:
     needs: release
     # The oldest supported runner, so the .deb links against an older glibc
     # and installs on more distributions.
     runs-on: ubuntu-22.04
+    outputs:
+      signature: ${{ steps.deb.outputs.signature }}
     steps:
       - uses: actions/checkout@v7
       - name: Install the WebKitGTK build dependencies
@@ -90,12 +83,69 @@ jobs:
         with:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
-      - run: pnpm tauri build
+      - run: pnpm exec tauri build --config src-tauri/tauri.release.conf.json -- --locked
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       # A fixed asset name, so releases/latest/download/orchard_amd64.deb always
       # points at the newest version.
       - name: Upload the .deb to the GitHub Release
+        id: deb
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp src-tauri/target/release/bundle/deb/*.deb orchard_amd64.deb
+          deb=$(ls src-tauri/target/release/bundle/deb/*.deb)
+          echo "signature=$(cat "$deb.sig")" >> "$GITHUB_OUTPUT"
+          cp "$deb" orchard_amd64.deb
           gh release upload "$GITHUB_REF_NAME" orchard_amd64.deb --clobber
+
+  # The manifest goes up last and the draft is published after it, so the
+  # updater never sees a manifest whose files are missing. The cask is pointed
+  # at the release only once it is public.
+  publish:
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upload latest.json and publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MACOS_SIGNATURE: ${{ needs.macos.outputs.signature }}
+          LINUX_SIGNATURE: ${{ needs.linux.outputs.signature }}
+        run: |
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          # The universal archive serves both Mac architectures.
+          jq -n \
+            --arg version "${GITHUB_REF_NAME#v}" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg mac_url "$base/Orchard_universal.app.tar.gz" \
+            --arg mac_sig "$MACOS_SIGNATURE" \
+            --arg deb_url "$base/orchard_amd64.deb" \
+            --arg deb_sig "$LINUX_SIGNATURE" \
+            '{version: $version, pub_date: $date, platforms: {
+              "darwin-aarch64": {url: $mac_url, signature: $mac_sig},
+              "darwin-x86_64": {url: $mac_url, signature: $mac_sig},
+              "linux-x86_64-deb": {url: $deb_url, signature: $deb_sig}
+            }}' > latest.json
+          gh release upload "$GITHUB_REF_NAME" latest.json --clobber --repo "$GITHUB_REPOSITORY"
+          gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"
+      - uses: actions/checkout@v7
+        with:
+          repository: rodpru/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+      - name: Point the cask at the new release
+        working-directory: homebrew-tap
+        env:
+          SHA256: ${{ needs.macos.outputs.sha256 }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sed -i -E \
+            -e "s/^  version \".*\"/  version \"$version\"/" \
+            -e "s/^  sha256 \".*\"/  sha256 \"$SHA256\"/" \
+            Casks/orchard.rb
+          # A re-run of the same tag leaves the cask unchanged.
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "orchard $version"
+          git push

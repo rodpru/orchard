@@ -16,7 +16,6 @@ The sidebar shows which agents are busy, which have new output and which rang th
 ## Requirements
 
 - macOS, or Linux. The `.deb` is for Ubuntu 22.04+ and Debian 12+ on x86_64; on other distributions, [build from source](#build-from-source).
-- [`lazygit`](https://github.com/jesseduffield/lazygit) and [`gh`](https://cli.github.com) on your shell PATH, with `gh auth login` done
 - The agent CLI you want to use, for example `claude`
 
 The Homebrew cask installs `lazygit` and `gh` for you. The `.deb` recommends both, so apt installs them where your distribution packages them: `gh` on every supported release, `lazygit` on Debian 13 and Ubuntu 25.04 or later. Otherwise, install `lazygit` with Homebrew or from its [install guide](https://github.com/jesseduffield/lazygit#installation); if it is missing, the lazygit pane says so. Either way, run `gh auth login` once.
@@ -38,7 +37,7 @@ curl -fLO https://github.com/rodpru/orchard/releases/latest/download/orchard_amd
 sudo apt install ./orchard_amd64.deb
 ```
 
-This adds Orchard to the application launcher and `orchard` to your PATH. apt installs WebKitGTK and GTK if they are missing. Run the same two commands to update, and `sudo apt remove orchard` to uninstall.
+This adds Orchard to the application launcher and `orchard` to your PATH. apt installs WebKitGTK and GTK if they are missing. `sudo apt remove orchard` uninstalls it.
 
 If the window stays blank, try starting it with `WEBKIT_DISABLE_COMPOSITING_MODE=1 orchard`. Orchard already turns off WebKitGTK's DMA-BUF renderer, the usual cause on NVIDIA and some Wayland setups.
 
@@ -60,6 +59,10 @@ pnpm tauri build
 ```
 
 On macOS, copy the app with `cp -R src-tauri/target/release/bundle/macos/Orchard.app /Applications/`; the build also produces a `.dmg` in `src-tauri/target/release/bundle/dmg/`. On Linux, install it with `sudo apt install ./src-tauri/target/release/bundle/deb/*.deb`. On distributions without apt, run the binary `src-tauri/target/release/orchard` directly.
+
+### Updates
+
+Orchard checks GitHub Releases for a new version at launch and every six hours. On macOS it installs the update in the background, and you get it the next time you open Orchard; running agents are never interrupted. On Linux, an **Update available** button appears in the sidebar and opens the release page; install the new `.deb` with `sudo apt install ./orchard_amd64.deb`. To turn this off, untick **Update automatically** in Settings.
 
 ## Use
 

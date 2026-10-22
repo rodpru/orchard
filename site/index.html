@@ -188,7 +188,7 @@
         <div class="grid grid-3">
           <article class="card">
             <h3>Runs on your machine</h3>
-            <p>The app makes no network requests of its own. Only <code>gh</code> talks to GitHub, with the login you already have.</p>
+            <p><code>gh</code> talks to GitHub with the login you already have. The app itself only checks GitHub Releases for signed updates, and you can turn that off.</p>
           </article>
           <article class="card">
             <h3>No telemetry, no account</h3>
@@ -230,7 +230,10 @@
 <span class="amber">$</span> gh auth login
 
 <span class="muted"># then, from any repo</span>
-<span class="amber">$</span> orchard .</pre>
+<span class="amber">$</span> orchard .
+
+<span class="muted"># once, in an Orchard shell tab, for PR status</span>
+<span class="amber">$</span> gh auth login</pre>
         </div>
       </div>
     </section>

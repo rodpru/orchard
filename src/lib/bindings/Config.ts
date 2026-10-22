@@ -9,4 +9,8 @@ pinned: Array<string>, agentCommand: string, lazygitCommand: string, editorComma
 /**
  * Optional root for new worktrees; empty means next to the repo.
  */
-worktreeRoot: string, language: Language | null, };
+worktreeRoot: string, language: Language | null, 
+/**
+ * Check GitHub Releases for a new version and install it in the background.
+ */
+autoUpdate: boolean, };

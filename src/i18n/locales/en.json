@@ -92,10 +92,17 @@
     "worktreeRootHint": "Empty: <repo>.worktrees next to the repository. Otherwise <folder>/<repo>/<branch>.",
     "language": "Language",
     "languageAuto": "System",
+    "autoUpdate": "Update automatically",
+    "autoUpdateHint": "Checks GitHub Releases for new versions and installs them in the background; they apply the next time Orchard starts. On Linux you confirm each install with your password.",
     "languages": {
       "en": "English",
       "pt": "Português"
     }
+  },
+  "update": {
+    "available": "Update {{version}} available",
+    "availableHint": "Opens the release page. Install the new .deb with: sudo apt install ./orchard_amd64.deb",
+    "openFailed": "Could not open the release page"
   },
   "empty": {
     "welcomeTitle": "Run agents in parallel worktrees",

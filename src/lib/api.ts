@@ -45,6 +45,9 @@ export const api = {
   },
   startupPath: () => invoke<string | null>("startup_path"),
 
+  /** Installs a newer release (macOS); returns the version to install by hand (Linux). */
+  updateCheck: () => invoke<string | null>("update_check"),
+
   readClipboard: () => readText(),
   writeClipboard: (text: string) => writeText(text),
 };

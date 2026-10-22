@@ -5,6 +5,7 @@ mod git;
 mod process;
 mod pty;
 mod system;
+mod update;
 
 use tauri::{Manager, RunEvent};
 
@@ -12,13 +13,16 @@ use tauri::{Manager, RunEvent};
 pub fn run() {
     #[cfg(target_os = "linux")]
     system::configure_webkit();
-    system::adopt_login_shell_path();
+    let context = tauri::generate_context!();
+    system::warm_path();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(pty::PtyState::default())
+        .manage(update::UpdateState::default())
         .invoke_handler(tauri::generate_handler![
             pty::pty_attach,
             pty::pty_detach,
@@ -38,8 +42,9 @@ pub fn run() {
             system::open_in_editor,
             system::command_exists,
             system::startup_path,
+            update::update_check,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {

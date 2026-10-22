@@ -7,6 +7,7 @@ import { WorktreeView } from "./components/WorktreeView";
 import { useConfig } from "./hooks/useConfig";
 import { usePrStatus } from "./hooks/usePrStatus";
 import { useSessionIndicators } from "./hooks/useSessionIndicators";
+import { useUpdate } from "./hooks/useUpdate";
 import { useWorktrees } from "./hooks/useWorktrees";
 import { api, errorMessage } from "./lib/api";
 import { shortcutKey, shortcutLabel } from "./lib/platform";
@@ -38,6 +39,15 @@ export default function App() {
   const [restored, setRestored] = useState<Record<string, SessionInfo[]>>({});
   const { activity, unread, attention, onActivity, onBell, markSeen } = useSessionIndicators(selected);
   const [dialog, setDialog] = useState<DialogState>(null);
+  const update = useUpdate(config?.autoUpdate ?? false);
+  const { openReleases } = update;
+  const openUpdate = useCallback(
+    () =>
+      void openReleases().catch(async (e) => {
+        await message(errorMessage(e), { title: t("update.openFailed"), kind: "error" });
+      }),
+    [openReleases, t],
+  );
 
   // Sessions outlive the webview, so a reload reopens the views it closed.
   useEffect(() => {
@@ -226,6 +236,8 @@ export default function App() {
         onRemoveRepo={(repo) => void removeRepo(repo)}
         onRefresh={() => void refreshAll().then(refreshPrs)}
         onSettings={() => setDialog({ kind: "settings" })}
+        updateAvailable={update.available}
+        onOpenUpdate={openUpdate}
       />
 
       <main className="main">
@@ -310,6 +322,7 @@ export default function App() {
               editorCommand: draft.editorCommand,
               worktreeRoot: draft.worktreeRoot,
               language: draft.language,
+              autoUpdate: draft.autoUpdate,
             }));
           }}
         />

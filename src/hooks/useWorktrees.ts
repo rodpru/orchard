@@ -23,7 +23,10 @@ export function useWorktrees(repos: string[]) {
     }
   }, []);
 
-  const refreshAll = useCallback(() => Promise.all(repos.map(refreshRepo)), [repos, refreshRepo]);
+  // One repo at a time: each already runs up to 8 `git status` in parallel.
+  const refreshAll = useCallback(async () => {
+    for (const repo of repos) await refreshRepo(repo);
+  }, [repos, refreshRepo]);
 
   const forgetRepo = useCallback((repo: string) => {
     setWorktrees((current) => withoutKey(current, repo));

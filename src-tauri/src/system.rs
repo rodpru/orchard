@@ -1,12 +1,15 @@
 use crate::error::{Error, Result};
+use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{OnceLock, mpsc};
 use std::time::Duration;
 
-/// A slow or hung shell rc file must not keep the window from opening.
+/// A slow or hung shell rc file must not keep programs from starting forever.
 const SHELL_PATH_TIMEOUT: Duration = Duration::from_secs(2);
 const COMMAND_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+
+static PATH: OnceLock<OsString> = OnceLock::new();
 
 /// The user's shell; `/bin/sh` when `SHELL` is unset, since not every Linux
 /// distribution ships zsh.
@@ -16,38 +19,46 @@ pub fn user_shell() -> String {
 
 /// GUI apps launched from the Dock or a desktop launcher start with a minimal
 /// PATH, so tools installed via Homebrew, nvm, cargo, ~/.local/bin, etc. are
-/// invisible. Copy the login shell's PATH.
-pub fn adopt_login_shell_path() {
+/// invisible. Asks the login shell for its PATH; None when it fails or hangs.
+fn login_shell_path() -> Option<String> {
     let shell = user_shell();
-    let Ok(mut child) = Command::new(&shell)
+    let mut child = Command::new(&shell)
         .args(["-l", "-i", "-c", "printf '__ORCHARD__%s__ORCHARD__' \"$PATH\""])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-    else {
-        return;
-    };
-    let Some(mut stdout) = child.stdout.take() else { return };
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
     let (tx, rx) = mpsc::channel();
     let reader = std::thread::spawn(move || {
         let mut out = String::new();
         let _ = stdout.read_to_string(&mut out);
         let _ = tx.send(out);
     });
-    let Ok(out) = rx.recv_timeout(SHELL_PATH_TIMEOUT) else {
+    let out = rx.recv_timeout(SHELL_PATH_TIMEOUT).ok();
+    if out.is_none() {
         // Killing the shell closes the pipe, so the reader thread ends too.
         let _ = child.kill();
-        let _ = child.wait();
-        let _ = reader.join();
-        return;
-    };
+    }
     let _ = child.wait();
     let _ = reader.join();
-    if let Some(path) = out.split("__ORCHARD__").nth(1).filter(|p| !p.is_empty()) {
-        // SAFETY: called once at startup; the only other thread was joined above.
-        unsafe { std::env::set_var("PATH", path) };
-    }
+    out?.split("__ORCHARD__").nth(1).filter(|p| !p.is_empty()).map(str::to_owned)
+}
+
+/// Starts resolving the PATH for spawned programs on a background thread, so
+/// a slow shell rc file delays the first git call instead of the window.
+pub fn warm_path() {
+    std::thread::spawn(|| {
+        path();
+    });
+}
+
+/// PATH for every program Orchard starts: the login shell's, or this
+/// process's when the shell fails. The first call blocks until the shell has
+/// answered or timed out; later calls are free.
+pub fn path() -> &'static OsStr {
+    PATH.get_or_init(|| login_shell_path().map(OsString::from).or_else(|| std::env::var_os("PATH")).unwrap_or_default())
 }
 
 /// WebKitGTK's DMA-BUF renderer shows a blank window on some NVIDIA and
@@ -78,6 +89,7 @@ pub async fn open_in_editor(editor: String, path: String) -> Result<()> {
     // tokio reaps the child in the background, so no zombie is left behind.
     tokio::process::Command::new(&argv[0])
         .args(&argv[1..])
+        .env("PATH", self::path())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -138,5 +150,12 @@ mod tests {
         assert_eq!(command_program("'/opt/my tools/lazygit' -p .").as_deref(), Some("/opt/my tools/lazygit"));
         assert_eq!(command_program("   "), None);
         assert_eq!(command_program("'unclosed"), None);
+    }
+
+    #[test]
+    fn path_is_resolved_once_and_never_empty() {
+        let first = path();
+        assert!(!first.is_empty());
+        assert!(std::ptr::eq(first, path()));
     }
 }
