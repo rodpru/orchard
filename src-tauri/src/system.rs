@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::{OnceLock, mpsc};
 use std::time::Duration;
@@ -8,6 +9,7 @@ use std::time::Duration;
 /// A slow or hung shell rc file must not keep programs from starting forever.
 const SHELL_PATH_TIMEOUT: Duration = Duration::from_secs(2);
 const COMMAND_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+const MARKER: &str = "__ORCHARD__";
 
 static PATH: OnceLock<OsString> = OnceLock::new();
 
@@ -17,48 +19,82 @@ pub fn user_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
 }
 
+/// The text between the first two markers, once both have arrived.
+fn between_markers(out: &[u8]) -> Option<String> {
+    let out = String::from_utf8_lossy(out);
+    let mut parts = out.split(MARKER).skip(1);
+    let path = parts.next()?;
+    parts.next()?;
+    Some(path.to_owned())
+}
+
 /// GUI apps launched from the Dock or a desktop launcher start with a minimal
 /// PATH, so tools installed via Homebrew, nvm, cargo, ~/.local/bin, etc. are
-/// invisible. Asks the login shell for its PATH; None when it fails or hangs.
-fn login_shell_path() -> Option<String> {
-    let shell = user_shell();
-    let mut child = Command::new(&shell)
-        .args(["-l", "-i", "-c", "printf '__ORCHARD__%s__ORCHARD__' \"$PATH\""])
+/// invisible. Asks `shell` for its login PATH; None when it fails or hangs.
+fn probe_path(shell: &str, timeout: Duration) -> Option<String> {
+    let mut child = Command::new(shell)
+        .args(["-l", "-i", "-c", &format!("printf '{MARKER}%s{MARKER}' \"$PATH\"")])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
+        // Its own process group, so the kill below also reaches whatever the
+        // rc files started.
+        .process_group(0)
         .spawn()
         .ok()?;
     let mut stdout = child.stdout.take()?;
     let (tx, rx) = mpsc::channel();
-    let reader = std::thread::spawn(move || {
-        let mut out = String::new();
-        let _ = stdout.read_to_string(&mut out);
-        let _ = tx.send(out);
+    // Reads up to the closing marker, not to EOF: a daemon started by an rc
+    // file (`eval $(ssh-agent)`, gpg-agent) can hold the pipe open forever.
+    // For the same reason the thread is never joined; it ends with the pipe.
+    std::thread::spawn(move || {
+        let mut out = Vec::new();
+        let mut buf = [0u8; 4096];
+        while let Ok(n @ 1..) = stdout.read(&mut buf) {
+            out.extend_from_slice(&buf[..n]);
+            if let Some(path) = between_markers(&out) {
+                let _ = tx.send(path);
+                return;
+            }
+        }
     });
-    let out = rx.recv_timeout(SHELL_PATH_TIMEOUT).ok();
-    if out.is_none() {
-        // Killing the shell closes the pipe, so the reader thread ends too.
-        let _ = child.kill();
-    }
+    let path = rx.recv_timeout(timeout).ok();
+    // SAFETY: plain syscall on the group created above; the shell is not
+    // reaped yet, so its pid, and with it the group id, cannot be reused.
+    unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
     let _ = child.wait();
-    let _ = reader.join();
-    out?.split("__ORCHARD__").nth(1).filter(|p| !p.is_empty()).map(str::to_owned)
+    path.filter(|p| !p.is_empty())
 }
 
-/// Starts resolving the PATH for spawned programs on a background thread, so
-/// a slow shell rc file delays the first git call instead of the window.
+/// PATH for programs Orchard starts: the login shell's, or this process's
+/// when the shell fails. Blocks until the probe has answered or timed out.
+fn resolved_path() -> &'static OsStr {
+    PATH.get_or_init(|| {
+        probe_path(&user_shell(), SHELL_PATH_TIMEOUT)
+            .map(OsString::from)
+            .or_else(|| std::env::var_os("PATH"))
+            .unwrap_or_default()
+    })
+}
+
+/// Starts the PATH probe on a background thread, so a slow shell rc file
+/// delays the first git call instead of the window.
 pub fn warm_path() {
-    std::thread::spawn(|| {
-        path();
-    });
+    std::thread::spawn(resolved_path);
 }
 
-/// PATH for every program Orchard starts: the login shell's, or this
-/// process's when the shell fails. The first call blocks until the shell has
-/// answered or timed out; later calls are free.
-pub fn path() -> &'static OsStr {
-    PATH.get_or_init(|| login_shell_path().map(OsString::from).or_else(|| std::env::var_os("PATH")).unwrap_or_default())
+/// The resolved PATH, waiting for the probe on a blocking thread rather than
+/// on the caller's async worker.
+pub async fn path() -> &'static OsStr {
+    match PATH.get() {
+        Some(path) => path,
+        None => tauri::async_runtime::spawn_blocking(resolved_path).await.unwrap_or_default(),
+    }
+}
+
+/// The resolved PATH if the probe has already answered.
+pub fn ready_path() -> Option<&'static OsStr> {
+    PATH.get().map(OsString::as_os_str)
 }
 
 /// WebKitGTK's DMA-BUF renderer shows a blank window on some NVIDIA and
@@ -86,10 +122,11 @@ fn editor_argv(editor: &str, path: &str) -> Result<Vec<String>> {
 #[tauri::command]
 pub async fn open_in_editor(editor: String, path: String) -> Result<()> {
     let argv = editor_argv(&editor, &path)?;
+    let search_path = self::path().await;
     // tokio reaps the child in the background, so no zombie is left behind.
     tokio::process::Command::new(&argv[0])
         .args(&argv[1..])
-        .env("PATH", self::path())
+        .env("PATH", search_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -135,6 +172,8 @@ pub fn startup_path() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::Instant;
 
     #[test]
     fn editor_arguments_are_split() {
@@ -152,10 +191,41 @@ mod tests {
         assert_eq!(command_program("'unclosed"), None);
     }
 
+    /// A stand-in for the user's shell: ignores its arguments and runs `body`.
+    fn fake_shell(dir: &tempfile::TempDir, body: &str) -> String {
+        let path = dir.path().join("shell");
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
     #[test]
-    fn path_is_resolved_once_and_never_empty() {
-        let first = path();
+    fn a_daemon_holding_stdout_does_not_hang_the_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = fake_shell(&dir, "sleep 30 &\nprintf '__ORCHARD__/fake/bin__ORCHARD__'");
+        let start = Instant::now();
+        assert_eq!(probe_path(&shell, Duration::from_secs(5)).as_deref(), Some("/fake/bin"));
+        assert!(start.elapsed() < Duration::from_secs(2), "took {:?}", start.elapsed());
+    }
+
+    #[test]
+    fn a_hung_shell_times_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let shell = fake_shell(&dir, "sleep 30 &\nsleep 30");
+        let start = Instant::now();
+        assert_eq!(probe_path(&shell, Duration::from_millis(200)), None);
+        assert!(start.elapsed() < Duration::from_secs(2), "took {:?}", start.elapsed());
+    }
+
+    #[test]
+    fn concurrent_callers_share_one_resolved_path() {
+        let threads: Vec<_> = (0..8).map(|_| std::thread::spawn(resolved_path)).collect();
+        let first = resolved_path();
         assert!(!first.is_empty());
-        assert!(std::ptr::eq(first, path()));
+        for thread in threads {
+            assert!(std::ptr::eq(thread.join().unwrap(), first));
+        }
+        assert!(std::ptr::eq(tauri::async_runtime::block_on(path()), first));
+        assert!(ready_path().is_some_and(|p| std::ptr::eq(p, first)));
     }
 }

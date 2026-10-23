@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 /** A window coming back fires focus and visibilitychange together; one poll is enough. */
 const REFOCUS_GAP_MS = 3000;
@@ -6,26 +6,28 @@ const REFOCUS_GAP_MS = 3000;
 /**
  * Calls `poll` now, every `intervalMs` while the window is visible, and again
  * when the window regains focus or becomes visible. Hidden windows do not
- * poll, a poll never starts while the previous one is still running, and a
- * new `poll` identity (for example a changed repo list) polls at once.
+ * poll, a poll never starts while the previous one is still running (even one
+ * started with an older `poll`), and a new `poll` identity (for example a
+ * changed repo list) polls at once.
  */
 export function usePolling(poll: () => unknown, intervalMs: number, enabled = true) {
+  const running = useRef(false);
+  const finished = useRef(0);
+
   useEffect(() => {
     if (!enabled) return;
-    let running = false;
-    let finished = 0;
     const run = async () => {
-      if (document.hidden || running) return;
-      running = true;
+      if (document.hidden || running.current) return;
+      running.current = true;
       try {
         await poll();
       } finally {
-        running = false;
-        finished = Date.now();
+        running.current = false;
+        finished.current = Date.now();
       }
     };
     const refocus = () => {
-      if (Date.now() - finished > REFOCUS_GAP_MS) void run();
+      if (Date.now() - finished.current > REFOCUS_GAP_MS) void run();
     };
     void run();
     const timer = window.setInterval(() => void run(), intervalMs);

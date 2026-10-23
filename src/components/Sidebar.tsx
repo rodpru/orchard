@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { basename } from "../lib/api";
-import { shortcutBadge, shortcutLabel } from "../lib/platform";
+import { isMac, shortcutBadge, shortcutLabel } from "../lib/platform";
 import type { PrSummary, Worktree } from "../lib/types";
 import { PrBadge } from "./PrBadge";
 
@@ -27,7 +27,7 @@ interface Props {
   onRemoveRepo: (repo: string) => void;
   onRefresh: () => void;
   onSettings: () => void;
-  /** Linux: a newer release the user installs from the release page. */
+  /** A newer release the user installs from the release page: Linux, or macOS when the app cannot replace itself. */
   updateAvailable: string | null;
   onOpenUpdate: () => void;
 }
@@ -178,7 +178,7 @@ export function Sidebar(props: Props) {
 
       <div className="sidebar-footer">
         {props.updateAvailable && (
-          <button className="primary" onClick={props.onOpenUpdate} title={t("update.availableHint")}>
+          <button className="primary" onClick={props.onOpenUpdate} title={t(isMac ? "update.availableHintMac" : "update.availableHintLinux")}>
             {t("update.available", { version: props.updateAvailable })}
           </button>
         )}

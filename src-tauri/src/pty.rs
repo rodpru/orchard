@@ -28,9 +28,12 @@ const SCROLLBACK_BYTES: usize = 2 * 1024 * 1024;
 const KILL_GRACE: Duration = Duration::from_secs(1);
 const QUIT_GRACE: Duration = Duration::from_millis(300);
 /// A PTY hands out a few KB per read and every push is one IPC message, so a
-/// burst is gathered up to this size, waiting this long between reads.
+/// burst is gathered up to this size, waiting this long between reads, but
+/// never for longer than READ_BATCH_MAX: a steady trickle (`tail -f`, a
+/// progress bar) has no quiet gap and must still show up promptly.
 const READ_BATCH_BYTES: usize = 64 * 1024;
 const READ_BATCH_WAIT: Duration = Duration::from_millis(4);
+const READ_BATCH_MAX: Duration = Duration::from_millis(12);
 
 /// Non-output events. Output itself is sent as raw bytes (an `ArrayBuffer`
 /// in the webview), which avoids escaping every chunk into JSON.
@@ -172,6 +175,28 @@ fn readable(fd: RawFd, wait: Duration) -> bool {
     }
 }
 
+/// Blocks until output arrives, then keeps reading while more follows within
+/// READ_BATCH_WAIT, up to READ_BATCH_BYTES or READ_BATCH_MAX after the first
+/// byte, so a burst crosses the IPC bridge as one message, not one per read.
+/// The flag is false once the pty has closed.
+fn read_batch(reader: &mut impl Read, fd: Option<RawFd>, buf: &mut [u8]) -> (Vec<u8>, bool) {
+    let mut chunk = Vec::new();
+    let mut started = None;
+    loop {
+        match reader.read(buf) {
+            Ok(0) | Err(_) => return (chunk, false),
+            Ok(n) => chunk.extend_from_slice(&buf[..n]),
+        }
+        let left = READ_BATCH_MAX.saturating_sub(started.get_or_insert_with(Instant::now).elapsed());
+        if chunk.len() >= READ_BATCH_BYTES
+            || left.is_zero()
+            || !fd.is_some_and(|fd| readable(fd, READ_BATCH_WAIT.min(left)))
+        {
+            return (chunk, true);
+        }
+    }
+}
+
 fn spawn(cwd: &str, command: Option<&str>, cols: u16, rows: u16) -> Result<Arc<Session>> {
     let pair = native_pty_system().openpty(pty_size(cols, rows)).map_err(Error::pty)?;
 
@@ -184,7 +209,12 @@ fn spawn(cwd: &str, command: Option<&str>, cols: u16, rows: u16) -> Result<Arc<S
         None => cmd.args(["-l", "-i"]),
     }
     cmd.cwd(cwd);
-    cmd.env("PATH", crate::system::path());
+    // The login shell builds the same PATH the probe does, so a terminal
+    // started before the probe has answered (restored at launch) inherits
+    // this process's PATH instead of waiting on the main thread.
+    if let Some(path) = crate::system::ready_path() {
+        cmd.env("PATH", path);
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "orchard");
@@ -221,25 +251,13 @@ fn spawn(cwd: &str, command: Option<&str>, cols: u16, rows: u16) -> Result<Arc<S
     let reading = Arc::clone(&session);
     std::thread::spawn(move || {
         let mut buf = [0u8; 16 * 1024];
-        let mut open = true;
-        while open {
-            // Keep reading while more output arrives within READ_BATCH_WAIT, so
-            // a burst crosses the IPC bridge as one message, not one per read.
-            let mut chunk = Vec::new();
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) | Err(_) => {
-                        open = false;
-                        break;
-                    }
-                    Ok(n) => chunk.extend_from_slice(&buf[..n]),
-                }
-                if chunk.len() >= READ_BATCH_BYTES || !fd.is_some_and(|fd| readable(fd, READ_BATCH_WAIT)) {
-                    break;
-                }
-            }
+        loop {
+            let (chunk, open) = read_batch(&mut reader, fd, &mut buf);
             if !chunk.is_empty() {
                 reading.output.lock().unwrap().push(chunk);
+            }
+            if !open {
+                break;
             }
         }
         let code = child.wait().ok().map(|status| status.exit_code());
@@ -379,17 +397,46 @@ mod tests {
     }
 
     #[test]
-    fn readable_sees_pending_bytes_and_times_out_without_them() {
-        let mut fds = [0 as RawFd; 2];
-        // SAFETY: a fresh pipe; both ends are closed before returning.
-        unsafe {
-            assert_eq!(libc::pipe(fds.as_mut_ptr()), 0);
-            assert!(!readable(fds[0], Duration::from_millis(5)));
-            assert_eq!(libc::write(fds[1], b"x".as_ptr().cast(), 1), 1);
-            assert!(readable(fds[0], Duration::from_millis(5)));
-            libc::close(fds[0]);
-            libc::close(fds[1]);
-        }
+    fn readable_sees_pty_output_and_times_out_without_it() {
+        let pair = native_pty_system().openpty(pty_size(80, 24)).unwrap();
+        let fd = pair.master.as_raw_fd().unwrap();
+        assert!(!readable(fd, Duration::from_millis(20)));
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.args(["-c", "printf x"]);
+        let mut child = pair.slave.spawn_command(cmd).unwrap();
+        assert!(readable(fd, Duration::from_secs(5)));
+        // Read before waiting: on macOS a process exiting with unread output
+        // on its terminal blocks until the master drains it.
+        let mut buf = [0u8; 16];
+        let n = pair.master.try_clone_reader().unwrap().read(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"x");
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn a_steady_trickle_is_flushed_within_the_batch_limit() {
+        use std::os::fd::AsRawFd;
+        let (mut reader, mut writer) = std::io::pipe().unwrap();
+        // 100 bytes every 3 ms never leaves a READ_BATCH_WAIT gap; without
+        // READ_BATCH_MAX the batch would only end at 64 KB, about 2 s in.
+        let feeder = std::thread::spawn(move || {
+            for _ in 0..700 {
+                if writer.write_all(&[b'x'; 100]).is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(3));
+            }
+        });
+        let fd = reader.as_raw_fd();
+        let mut buf = [0u8; 16 * 1024];
+        let start = Instant::now();
+        let (chunk, open) = read_batch(&mut reader, Some(fd), &mut buf);
+        let took = start.elapsed();
+        drop(reader);
+        feeder.join().unwrap();
+        assert!(open);
+        assert!(!chunk.is_empty() && chunk.len() < READ_BATCH_BYTES);
+        assert!(took < Duration::from_millis(200), "batch took {took:?}");
     }
 
     #[test]

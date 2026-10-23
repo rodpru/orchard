@@ -311,6 +311,7 @@ export default function App() {
       {dialog?.kind === "settings" && (
         <SettingsDialog
           config={config}
+          updateError={update.error}
           onCancel={() => setDialog(null)}
           onSave={(draft) => {
             setDialog(null);

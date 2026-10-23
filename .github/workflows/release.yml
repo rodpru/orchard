@@ -14,13 +14,29 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+      # latest.json takes its version from the tag and the signature from
+      # tauri.conf.json; if they differ, no client accepts the update.
+      - name: Check the tag matches the app version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          conf=$(jq -r .version src-tauri/tauri.conf.json)
+          crate=$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)
+          if [ "$tag" != "$conf" ] || [ "$tag" != "$crate" ]; then
+            echo "::error::tag $tag, tauri.conf.json $conf, Cargo.toml $crate"
+            exit 1
+          fi
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # A re-run of the same tag reuses the existing release.
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+          # A re-run unpublishes the existing release first, so clients never
+          # fetch its old latest.json while new assets are uploaded.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=true
+          else
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --draft
+          fi
 
   macos:
     needs: release
@@ -44,7 +60,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Universal build: one .dmg for Apple Silicon and Intel, so the cask needs a single url.
       # The release config signs the updater archive.
-      - run: pnpm exec tauri build --target universal-apple-darwin --config src-tauri/tauri.release.conf.json -- --locked
+      # The CLI only warns when the signing key does not match the app's pubkey,
+      # and no client could install that release, so the warning fails the build.
+      - shell: bash
+        run: |
+          pnpm exec tauri build --target universal-apple-darwin --config src-tauri/tauri.release.conf.json -- --locked 2>&1 | tee build.log
+          if grep -q "does not match the public key" build.log; then exit 1; fi
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -83,7 +104,10 @@ jobs:
         with:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec tauri build --config src-tauri/tauri.release.conf.json -- --locked
+      - shell: bash
+        run: |
+          pnpm exec tauri build --config src-tauri/tauri.release.conf.json -- --locked 2>&1 | tee build.log
+          if grep -q "does not match the public key" build.log; then exit 1; fi
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

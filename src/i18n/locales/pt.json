@@ -48,7 +48,8 @@
     "closeTab": "Fechar tab"
   },
   "terminal": {
-    "exited": "[processo terminou — Enter para reiniciar]"
+    "exited": "[processo terminou — Enter para reiniciar]",
+    "openLink": "Abrir este link?\n\n{{url}}"
   },
   "pr": {
     "tooltip": "#{{number}} {{title}}\n{{status}} · ✓ {{passed}}  ✕ {{failed}}  ● {{pending}}",
@@ -93,7 +94,8 @@
     "language": "Idioma",
     "languageAuto": "Sistema",
     "autoUpdate": "Atualizar automaticamente",
-    "autoUpdateHint": "Procura novas versões nos GitHub Releases e instala-as em segundo plano; ficam ativas na próxima vez que o Orchard abrir. No Linux confirmas cada instalação com a tua palavra-passe.",
+    "autoUpdateHint": "Procura novas versões nos GitHub Releases. No macOS instalam-se em segundo plano e ficam ativas na próxima vez que o Orchard abrir. No Linux, um botão na barra lateral abre a página da release.",
+    "updateError": "A última verificação de atualizações falhou: {{error}}",
     "languages": {
       "en": "English",
       "pt": "Português"
@@ -101,7 +103,8 @@
   },
   "update": {
     "available": "Atualização {{version}} disponível",
-    "availableHint": "Abre a página da release. Instala o novo .deb com: sudo apt install ./orchard_amd64.deb",
+    "availableHintLinux": "Abre a página da release. Instala o novo .deb com: sudo apt install ./orchard_amd64.deb",
+    "availableHintMac": "Abre a página da release. O Orchard não se consegue substituir na pasta onde está; atualiza com: brew upgrade --cask --greedy orchard",
     "openFailed": "Não foi possível abrir a página da release"
   },
   "empty": {

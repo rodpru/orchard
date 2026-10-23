@@ -175,11 +175,13 @@ export function RemoveWorktreeDialog({ worktree, onCancel, onConfirm }: RemovePr
 
 interface SettingsProps {
   config: Config;
+  /** Why the last update check failed, if it did. */
+  updateError: string | null;
   onCancel: () => void;
   onSave: (config: Config) => void;
 }
 
-export function SettingsDialog({ config, onCancel, onSave }: SettingsProps) {
+export function SettingsDialog({ config, updateError, onCancel, onSave }: SettingsProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(config);
   const field = (key: "agentCommand" | "lazygitCommand" | "editorCommand" | "worktreeRoot") => ({
@@ -238,6 +240,7 @@ export function SettingsDialog({ config, onCancel, onSave }: SettingsProps) {
           {t("settings.autoUpdate")}
         </label>
         <small>{t("settings.autoUpdateHint")}</small>
+        {updateError && <p className="error small">{t("settings.updateError", { error: updateError })}</p>}
         <div className="modal-actions">
           <button type="button" onClick={onCancel}>
             {t("common.cancel")}

@@ -1,5 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -7,7 +8,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { api, errorMessage, type PtyMessage } from "../lib/api";
+import { api, errorMessage, isOpenableUrl, type PtyMessage } from "../lib/api";
 import { isMac } from "../lib/platform";
 import type { SessionId } from "../lib/sessions";
 import { droppedPaths } from "../lib/shell";
@@ -69,6 +70,13 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
     const container = containerRef.current;
     if (!container) return;
 
+    // OSC 8 links show any text over any target, so the real target is
+    // confirmed first. Plain URLs open directly: their text is the target.
+    const openHyperlink = async (uri: string) => {
+      if (!isOpenableUrl(uri)) return;
+      if (await ask(latest.current.t("terminal.openLink", { url: uri }), { kind: "warning" })) await api.openUrl(uri);
+    };
+
     const term = new XTerm({
       fontFamily: '"SF Mono", Menlo, Monaco, "DejaVu Sans Mono", "Liberation Mono", "Ubuntu Mono", monospace',
       fontSize: 13,
@@ -78,23 +86,37 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
       macOptionIsMeta: true,
       allowProposedApi: true,
       theme: THEME,
-      // OSC 8 links printed by programs go through the same allowlist as
-      // plain URLs; xterm's default would window.open whatever they name.
-      linkHandler: { activate: (_event, uri) => void api.openUrl(uri).catch(() => undefined) },
+      // xterm's default handler does nothing in this webview.
+      linkHandler: { activate: (_event, uri) => void openHyperlink(uri).catch(() => undefined) },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon((_event, uri) => void api.openUrl(uri).catch(() => undefined)));
     term.open(container);
     // The DOM renderer rebuilds every row a TUI redraws; WebGL draws them on
-    // the GPU. Some WebKitGTK builds have no WebGL2, so the DOM renderer stays.
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      // DOM renderer
-    }
+    // the GPU. WebKit keeps about 16 live WebGL contexts and drops the oldest,
+    // so only terminals on screen hold one. Without WebGL2 (some WebKitGTK
+    // builds) the DOM renderer stays.
+    let webgl: WebglAddon | null = null;
+    const visibility = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && !webgl) {
+        try {
+          const addon = new WebglAddon();
+          addon.onContextLoss(() => {
+            addon.dispose();
+            if (webgl === addon) webgl = null;
+          });
+          term.loadAddon(addon);
+          webgl = addon;
+        } catch {
+          // DOM renderer
+        }
+      } else if (!entry.isIntersecting && webgl) {
+        webgl.dispose();
+        webgl = null;
+      }
+    });
+    visibility.observe(container);
     if (container.offsetWidth > 0) fit.fit();
     instanceRef.current = { term, fit };
 
@@ -210,6 +232,7 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
       disposed = true;
       void stopDrop.then((stop) => stop());
       observer.disconnect();
+      visibility.disconnect();
       if (token !== null) void api.ptyDetach(id, token).catch(() => undefined);
       term.dispose();
       instanceRef.current = null;

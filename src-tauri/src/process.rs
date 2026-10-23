@@ -6,9 +6,10 @@ use tokio::process::Command;
 /// returns its trimmed stdout. Failures name the command and exit status, so
 /// an empty stderr never turns into an empty error.
 pub async fn run(cwd: &Path, program: &str, args: &[&str], env: &[(&str, &str)]) -> Result<String> {
+    let path = crate::system::path().await;
     let output = Command::new(program)
         .args(args)
-        .env("PATH", crate::system::path())
+        .env("PATH", path)
         .envs(env.iter().copied())
         .current_dir(cwd)
         .kill_on_drop(true)
