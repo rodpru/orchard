@@ -174,6 +174,8 @@ export default function App() {
     const confirmed = await ask(t("sidebar.removeRepoConfirm", { repo }), {
       title: t("sidebar.removeRepo"),
       kind: "warning",
+      okLabel: t("common.remove"),
+      cancelLabel: t("common.cancel"),
     });
     if (!confirmed) return;
     const paths = (worktrees[repo] ?? []).map((wt) => wt.path);

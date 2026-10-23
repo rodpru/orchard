@@ -5,6 +5,8 @@
   },
   "common": {
     "cancel": "Cancel",
+    "open": "Open",
+    "remove": "Remove",
     "save": "Save"
   },
   "errors": {
