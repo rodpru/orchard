@@ -74,7 +74,13 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
     // confirmed first. Plain URLs open directly: their text is the target.
     const openHyperlink = async (uri: string) => {
       if (!isOpenableUrl(uri)) return;
-      if (await ask(latest.current.t("terminal.openLink", { url: uri }), { kind: "warning" })) await api.openUrl(uri);
+      const { t } = latest.current;
+      const confirmed = await ask(t("terminal.openLink", { url: uri }), {
+        kind: "warning",
+        okLabel: t("common.open"),
+        cancelLabel: t("common.cancel"),
+      });
+      if (confirmed) await api.openUrl(uri);
     };
 
     const term = new XTerm({

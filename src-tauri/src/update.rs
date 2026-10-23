@@ -23,12 +23,18 @@ pub struct UpdateState {
 }
 
 /// None when offline or GitHub is unreachable: the next check tries again,
-/// so that is not worth reporting. Every other failure is an error.
+/// so that is not worth reporting. Every other failure is an error,
+/// including `Network`, which the plugin raises only for a download that
+/// answered with an error status (a missing or forbidden release asset), and
+/// a `latest.json` that does not decode.
 fn unless_offline<T>(result: std::result::Result<T, tauri_plugin_updater::Error>) -> Result<Option<T>> {
-    use tauri_plugin_updater::Error::{Network, Reqwest};
     match result {
         Ok(value) => Ok(Some(value)),
-        Err(Reqwest(_) | Network(_)) => Ok(None),
+        Err(tauri_plugin_updater::Error::Reqwest(e))
+            if e.is_connect() || e.is_timeout() || e.is_request() || e.is_body() =>
+        {
+            Ok(None)
+        }
         Err(e) => Err(Error::Invalid(format!("update: {e}"))),
     }
 }
@@ -91,9 +97,9 @@ mod tests {
     }
 
     #[test]
-    fn offline_is_not_an_error_but_a_bad_signature_is() {
-        let offline = unless_offline::<()>(Err(tauri_plugin_updater::Error::Network("down".into())));
-        assert!(matches!(offline, Ok(None)));
+    fn a_broken_release_is_an_error() {
+        let missing_asset = unless_offline::<()>(Err(tauri_plugin_updater::Error::Network("404 Not Found".into())));
+        assert!(missing_asset.is_err());
         let bad = unless_offline::<()>(Err(tauri_plugin_updater::Error::MissingSignedVersion));
         assert!(bad.is_err());
     }

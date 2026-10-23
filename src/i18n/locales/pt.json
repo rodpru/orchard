@@ -5,6 +5,8 @@
   },
   "common": {
     "cancel": "Cancelar",
+    "open": "Abrir",
+    "remove": "Remover",
     "save": "Guardar"
   },
   "errors": {
