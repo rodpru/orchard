@@ -106,7 +106,7 @@
   "update": {
     "available": "Update {{version}} available",
     "availableHintLinux": "Opens the release page. Install the new .deb with: sudo apt install ./orchard_amd64.deb",
-    "availableHintMac": "Opens the release page. Orchard cannot replace itself in its folder; update with: brew upgrade --cask --greedy orchard",
+    "availableHintMac": "Opens the release page. Orchard cannot replace itself in its folder; update with: brew upgrade --cask --greedy rodpru/tap/orchard",
     "openFailed": "Could not open the release page"
   },
   "empty": {
