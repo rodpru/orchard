@@ -13,8 +13,6 @@ cask "orchard" do
     strategy :github_latest
   end
 
-  # Orchard installs its own updates; brew upgrade leaves it alone.
-  auto_updates true
   depends_on formula: ["lazygit", "gh"]
   depends_on :macos
 
