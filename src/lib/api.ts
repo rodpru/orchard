@@ -2,7 +2,17 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { openUrl as openerOpenUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { SessionId } from "./sessions";
-import type { Branches, Config, IpcError, LoadedConfig, PrSummary, PtyEvent, SessionInfo, Worktree } from "./types";
+import type {
+  Branches,
+  Config,
+  ConflictReport,
+  IpcError,
+  LoadedConfig,
+  PrSummary,
+  PtyEvent,
+  SessionInfo,
+  Worktree,
+} from "./types";
 
 /** Terminal output arrives as raw bytes; everything else as a `PtyEvent`. */
 export type PtyMessage = ArrayBuffer | PtyEvent;
@@ -22,6 +32,8 @@ export const api = {
 
   /** PRs of the repo keyed by head branch. */
   prList: (repo: string) => invoke<Partial<Record<string, PrSummary>>>("gh_pr_list", { repo }),
+  /** Clashes of the repo's worktrees; `fetch` first fetches `origin` and the open PRs. */
+  conflictsCheck: (repo: string, fetch: boolean) => invoke<ConflictReport>("conflicts_check", { repo, fetch }),
 
   /** Starts the session if needed and streams its output; returns the token for `ptyDetach`. */
   ptyAttach: (

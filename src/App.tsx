@@ -5,6 +5,7 @@ import { NewWorktreeDialog, RemoveWorktreeDialog, SettingsDialog } from "./compo
 import { Sidebar } from "./components/Sidebar";
 import { WorktreeView } from "./components/WorktreeView";
 import { useConfig } from "./hooks/useConfig";
+import { useConflicts } from "./hooks/useConflicts";
 import { usePrStatus } from "./hooks/usePrStatus";
 import { useSessionIndicators } from "./hooks/useSessionIndicators";
 import { useUpdate } from "./hooks/useUpdate";
@@ -33,6 +34,7 @@ export default function App() {
   const pinned = useMemo(() => config?.pinned ?? [], [config]);
   const { worktrees, repoErrors, refreshRepo, refreshAll, forgetRepo } = useWorktrees(repos);
   const { prs, prErrors, refreshPrs } = usePrStatus(repos, worktrees);
+  const { clashes, conflictErrors, refreshConflicts } = useConflicts(repos, config?.fetchRemote ?? false);
   const [open, setOpen] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [agentOverrides, setAgentOverrides] = useState<Record<string, string>>({});
@@ -224,6 +226,8 @@ export default function App() {
         repoErrors={repoErrors}
         prErrors={prErrors}
         prs={prs}
+        clashes={clashes}
+        conflictErrors={conflictErrors}
         pinned={pinned}
         open={open}
         shortcutOrder={shortcutOrder}
@@ -236,7 +240,7 @@ export default function App() {
         onNewWorktree={(repo) => setDialog({ kind: "new", repo })}
         onAddRepo={() => void addRepo()}
         onRemoveRepo={(repo) => void removeRepo(repo)}
-        onRefresh={() => void refreshAll().then(refreshPrs)}
+        onRefresh={() => void refreshAll().then(() => Promise.all([refreshPrs(), refreshConflicts()]))}
         onSettings={() => setDialog({ kind: "settings" })}
         updateAvailable={update.available}
         onOpenUpdate={openUpdate}
@@ -326,6 +330,7 @@ export default function App() {
               worktreeRoot: draft.worktreeRoot,
               language: draft.language,
               autoUpdate: draft.autoUpdate,
+              fetchRemote: draft.fetchRemote,
             }));
           }}
         />

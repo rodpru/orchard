@@ -24,7 +24,8 @@
     "pinned": "Fixadas",
     "pin": "Fixar no topo",
     "unpin": "Desafixar",
-    "prError": "Estado dos PRs indisponível: {{error}}"
+    "prError": "Estado dos PRs indisponível: {{error}}",
+    "conflictError": "Verificação de conflitos indisponível: {{error}}"
   },
   "worktree": {
     "detached": "HEAD destacado",
@@ -62,6 +63,14 @@
       "closed": "fechado"
     }
   },
+  "conflicts": {
+    "conflict": "Conflito com {{target}}: {{files}}",
+    "overlap": "Mesmos ficheiros que {{target}}, sem conflito: {{files}}",
+    "diverged": "{{target}} tem commits que este branch não tem, por isso o push é rejeitado. Ambos alteram: {{files}}",
+    "divergedClean": "{{target}} tem commits que este branch não tem, por isso o push é rejeitado.",
+    "pr": "PR #{{number}}",
+    "more": "e mais {{count}}"
+  },
   "newWorktree": {
     "title": "Nova worktree em {{repo}}",
     "branch": "Branch",
@@ -98,6 +107,8 @@
     "autoUpdate": "Atualizar automaticamente",
     "autoUpdateHint": "Procura novas versões nos GitHub Releases. No macOS instalam-se em segundo plano e ficam ativas na próxima vez que o Orchard abrir. No Linux, um botão na barra lateral abre a página da release.",
     "updateError": "A última verificação de atualizações falhou: {{error}}",
+    "fetchRemote": "Verificar conflitos com o origin",
+    "fetchRemoteHint": "A cada 5 minutos, faz fetch do origin e dos PRs abertos, para comparar as worktrees também com o branch por defeito, com o próprio branch remoto e com os PRs de outras pessoas. Nunca pede credenciais.",
     "languages": {
       "en": "English",
       "pt": "Português"

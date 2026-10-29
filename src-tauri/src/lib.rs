@@ -1,4 +1,5 @@
 mod config;
+mod conflicts;
 mod error;
 mod gh;
 mod git;
@@ -37,6 +38,7 @@ pub fn run() {
             git::git_create_worktree,
             git::git_remove_worktree,
             gh::gh_pr_list,
+            conflicts::conflicts_check,
             config::config_load,
             config::config_save,
             system::open_in_editor,

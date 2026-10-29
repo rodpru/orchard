@@ -12,9 +12,11 @@ const STATUS_CONCURRENCY: usize = 8;
 /// Every git call skips optional locks: Orchard polls `git status` while agents
 /// run `git add`/`git commit` in the same worktree, and a refresh that takes
 /// `index.lock` makes their commands fail with "File exists".
-async fn git(cwd: &Path, args: &[&str]) -> Result<String> {
-    run(cwd, "git", args, &[("GIT_OPTIONAL_LOCKS", "0")]).await
+pub(crate) async fn git(cwd: &Path, args: &[&str]) -> Result<String> {
+    run(cwd, "git", args, &[NO_OPTIONAL_LOCKS]).await
 }
+
+pub(crate) const NO_OPTIONAL_LOCKS: (&str, &str) = ("GIT_OPTIONAL_LOCKS", "0");
 
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +74,12 @@ pub async fn resolve_repo(path: &Path) -> Result<String> {
         .ok_or_else(|| Error::Invalid("not a git repository".into()))
 }
 
+/// Path and branch of every worktree whose folder still exists, main first.
+pub(crate) async fn checkouts(repo: &Path) -> Result<Vec<(String, Option<String>)>> {
+    let porcelain = git(repo, &["worktree", "list", "--porcelain"]).await?;
+    Ok(parse_worktrees(&porcelain).into_iter().filter(|wt| !wt.prunable).map(|wt| (wt.path, wt.branch)).collect())
+}
+
 pub async fn list_worktrees(repo: &Path) -> Result<Vec<Worktree>> {
     let porcelain = git(repo, &["worktree", "list", "--porcelain"]).await?;
     let worktrees = parse_worktrees(&porcelain);
@@ -108,11 +116,16 @@ pub async fn list_branches(repo: &Path) -> Result<Branches> {
                 .collect::<Vec<_>>(),
         )
     };
-    let default_branch = match git(repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).await {
+    let default_branch = default_branch(repo).await;
+    Ok(Branches { local: refs("refs/heads").await?, remote: refs("refs/remotes").await?, default_branch })
+}
+
+/// `origin/HEAD` (for example `origin/main`), else the main worktree's branch.
+pub(crate) async fn default_branch(repo: &Path) -> String {
+    match git(repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).await {
         Ok(branch) => branch,
         Err(_) => git(repo, &["branch", "--show-current"]).await.unwrap_or_else(|_| "main".into()),
-    };
-    Ok(Branches { local: refs("refs/heads").await?, remote: refs("refs/remotes").await?, default_branch })
+    }
 }
 
 fn sanitize(branch: &str) -> String {
