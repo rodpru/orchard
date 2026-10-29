@@ -64,6 +64,8 @@
     }
   },
   "conflicts": {
+    "local": "Other worktrees",
+    "online": "origin and open PRs",
     "conflict": "Conflicts with {{target}}: {{files}}",
     "overlap": "Same files as {{target}}, no conflict: {{files}}",
     "diverged": "{{target}} has commits this branch lacks, so a push is rejected. Both changed: {{files}}",

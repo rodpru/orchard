@@ -64,6 +64,8 @@
     }
   },
   "conflicts": {
+    "local": "Outras worktrees",
+    "online": "origin e PRs abertos",
     "conflict": "Conflito com {{target}}: {{files}}",
     "overlap": "Mesmos ficheiros que {{target}}, sem conflito: {{files}}",
     "diverged": "{{target}} tem commits que este branch não tem, por isso o push é rejeitado. Ambos alteram: {{files}}",
