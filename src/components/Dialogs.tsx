@@ -241,6 +241,15 @@ export function SettingsDialog({ config, updateError, onCancel, onSave }: Settin
         </label>
         <small>{t("settings.autoUpdateHint")}</small>
         {updateError && <p className="error small">{t("settings.updateError", { error: updateError })}</p>}
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={draft.fetchRemote}
+            onChange={(e) => setDraft({ ...draft, fetchRemote: e.target.checked })}
+          />
+          {t("settings.fetchRemote")}
+        </label>
+        <small>{t("settings.fetchRemoteHint")}</small>
         <div className="modal-actions">
           <button type="button" onClick={onCancel}>
             {t("common.cancel")}

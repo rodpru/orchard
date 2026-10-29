@@ -24,7 +24,8 @@
     "pinned": "Pinned",
     "pin": "Pin to top",
     "unpin": "Unpin",
-    "prError": "PR status unavailable: {{error}}"
+    "prError": "PR status unavailable: {{error}}",
+    "conflictError": "Conflict check unavailable: {{error}}"
   },
   "worktree": {
     "detached": "detached HEAD",
@@ -62,6 +63,14 @@
       "closed": "closed"
     }
   },
+  "conflicts": {
+    "conflict": "Conflicts with {{target}}: {{files}}",
+    "overlap": "Same files as {{target}}, no conflict: {{files}}",
+    "diverged": "{{target}} has commits this branch lacks, so a push is rejected. Both changed: {{files}}",
+    "divergedClean": "{{target}} has commits this branch lacks, so a push is rejected.",
+    "pr": "PR #{{number}}",
+    "more": "and {{count}} more"
+  },
   "newWorktree": {
     "title": "New worktree in {{repo}}",
     "branch": "Branch",
@@ -98,6 +107,8 @@
     "autoUpdate": "Update automatically",
     "autoUpdateHint": "Checks GitHub Releases for new versions. On macOS they install in the background and apply the next time Orchard starts. On Linux, a button in the sidebar opens the release page.",
     "updateError": "The last update check failed: {{error}}",
+    "fetchRemote": "Check for conflicts with origin",
+    "fetchRemoteHint": "Every 5 minutes, fetches origin and the open PRs, so worktrees are also checked against the default branch, their own remote branch and other people's PRs. Never asks for credentials.",
     "languages": {
       "en": "English",
       "pt": "Português"

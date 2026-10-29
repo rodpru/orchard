@@ -13,4 +13,9 @@ worktreeRoot: string, language: Language | null,
 /**
  * Check GitHub Releases for a new version and install it in the background.
  */
-autoUpdate: boolean, };
+autoUpdate: boolean, 
+/**
+ * Fetch `origin` and open PR heads now and then, to check worktrees
+ * against them for conflicts.
+ */
+fetchRemote: boolean, };

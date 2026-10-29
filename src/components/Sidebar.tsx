@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { basename } from "../lib/api";
 import { isMac, shortcutBadge, shortcutLabel } from "../lib/platform";
-import type { PrSummary, Worktree } from "../lib/types";
+import type { Clash, PrSummary, Worktree } from "../lib/types";
+import { ClashBadge } from "./ClashBadge";
 import { PrBadge } from "./PrBadge";
 
 const BUSY_WINDOW_MS = 3000;
@@ -13,6 +14,9 @@ interface Props {
   repoErrors: Record<string, string>;
   prErrors: Record<string, string>;
   prs: Record<string, PrSummary | null>;
+  /** Clashes per worktree path; worktrees without any are absent. */
+  clashes: Record<string, Clash[]>;
+  conflictErrors: Record<string, string>;
   pinned: string[];
   open: string[];
   shortcutOrder: string[];
@@ -103,6 +107,7 @@ export function Sidebar(props: Props) {
         </span>
         <span className="worktree-meta">
           {wt.changes > 0 && <span className="changes-count">±{wt.changes}</span>}
+          {props.clashes[wt.path] && <ClashBadge clashes={props.clashes[wt.path]} />}
           {pr && <PrBadge summary={pr} compact />}
           {index > 0 && index < 10 && <kbd>{shortcutBadge(String(index))}</kbd>}
           <button
@@ -168,6 +173,11 @@ export function Sidebar(props: Props) {
               {props.prErrors[repo] && (
                 <p className="warning small" title={props.prErrors[repo]}>
                   {t("sidebar.prError", { error: props.prErrors[repo] })}
+                </p>
+              )}
+              {props.conflictErrors[repo] && (
+                <p className="warning small" title={props.conflictErrors[repo]}>
+                  {t("sidebar.conflictError", { error: props.conflictErrors[repo] })}
                 </p>
               )}
               {!isCollapsed && rows.map((wt) => renderRow(wt, null))}

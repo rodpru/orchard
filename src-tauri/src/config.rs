@@ -41,6 +41,9 @@ pub struct Config {
     pub language: Option<Language>,
     /// Check GitHub Releases for a new version and install it in the background.
     pub auto_update: bool,
+    /// Fetch `origin` and open PR heads now and then, to check worktrees
+    /// against them for conflicts.
+    pub fetch_remote: bool,
 }
 
 impl Default for Config {
@@ -55,6 +58,7 @@ impl Default for Config {
             worktree_root: String::new(),
             language: None,
             auto_update: true,
+            fetch_remote: false,
         }
     }
 }
@@ -169,6 +173,7 @@ mod tests {
         assert_eq!(config.language, None);
         assert_eq!(config.agent_command, "claude");
         assert!(config.auto_update);
+        assert!(!config.fetch_remote);
 
         save(&path, &Config { language: Some(Language::Pt), ..config }).unwrap();
         let back = load(&path).unwrap().config;
