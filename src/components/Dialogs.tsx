@@ -126,22 +126,36 @@ export function NewWorktreeDialog({ repo, config, onCancel, onCreated }: NewWork
 interface RemoveProps {
   worktree: Worktree;
   onCancel: () => void;
-  onConfirm: (options: { force: boolean; deleteBranch: boolean }) => Promise<void>;
+  onConfirm: (options: { force: boolean; unlock: boolean; deleteBranch: boolean }) => Promise<void>;
+}
+
+/** The tool named in a lock reason such as Supacode's `{"owner":"supacode",…}`, if any. */
+function lockOwner(reason: string | null): string | null {
+  if (!reason) return null;
+  try {
+    const parsed: unknown = JSON.parse(reason);
+    if (parsed && typeof parsed === "object" && "owner" in parsed && typeof parsed.owner === "string") return parsed.owner;
+  } catch {
+    // A free-text reason names no owner.
+  }
+  return null;
 }
 
 export function RemoveWorktreeDialog({ worktree, onCancel, onConfirm }: RemoveProps) {
   const { t } = useTranslation();
   const [force, setForce] = useState(false);
+  const [unlock, setUnlock] = useState(false);
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dirty = worktree.changes > 0;
+  const owner = lockOwner(worktree.lockReason);
 
   const submit = async () => {
     setBusy(true);
     setError(null);
     try {
-      await onConfirm({ force, deleteBranch });
+      await onConfirm({ force, unlock, deleteBranch });
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
@@ -152,10 +166,25 @@ export function RemoveWorktreeDialog({ worktree, onCancel, onConfirm }: RemovePr
     <Modal title={t("remove.title")} onClose={onCancel}>
       <p>{t("remove.body", { branch: worktree.branch ?? basename(worktree.path), path: worktree.path })}</p>
       {dirty && <p className="warning">{t("remove.dirty", { count: worktree.changes })}</p>}
+      {worktree.locked && (
+        <p className="warning" title={worktree.lockReason ?? undefined}>
+          {owner
+            ? t("remove.lockedBy", { owner })
+            : worktree.lockReason
+              ? t("remove.lockedReason", { reason: worktree.lockReason })
+              : t("remove.locked")}
+        </p>
+      )}
       <label className="checkbox">
         <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
         {t("remove.force")}
       </label>
+      {worktree.locked && (
+        <label className="checkbox">
+          <input type="checkbox" checked={unlock} onChange={(e) => setUnlock(e.target.checked)} />
+          {t("remove.unlock")}
+        </label>
+      )}
       {worktree.branch && (
         <label className="checkbox">
           <input type="checkbox" checked={deleteBranch} onChange={(e) => setDeleteBranch(e.target.checked)} />
@@ -165,7 +194,7 @@ export function RemoveWorktreeDialog({ worktree, onCancel, onConfirm }: RemovePr
       {error && <p className="error">{error}</p>}
       <div className="modal-actions">
         <button onClick={onCancel}>{t("common.cancel")}</button>
-        <button className="danger solid" disabled={busy || (dirty && !force)} onClick={() => void submit()}>
+        <button className="danger solid" disabled={busy || (dirty && !force) || (worktree.locked && !unlock)} onClick={() => void submit()}>
           {t("remove.confirm")}
         </button>
       </div>

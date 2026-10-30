@@ -26,8 +26,11 @@ export const api = {
   listBranches: (repo: string) => invoke<Branches>("git_list_branches", { repo }),
   createWorktree: (args: { repo: string; branch: string; base: string | null; root: string | null }) =>
     invoke<string>("git_create_worktree", args),
-  /** Deletes only the local branch when `deleteBranch` is set; never the remote one. */
-  removeWorktree: (args: { repo: string; path: string; force: boolean; deleteBranch: string | null }) =>
+  /**
+   * Deletes only the local branch when `deleteBranch` is set; never the remote one.
+   * `unlock` lifts another tool's lock first and puts it back if the removal fails.
+   */
+  removeWorktree: (args: { repo: string; path: string; force: boolean; unlock: boolean; deleteBranch: string | null }) =>
     invoke<void>("git_remove_worktree", args),
 
   /** PRs of the repo keyed by head branch. */

@@ -92,6 +92,10 @@
     "dirty_one": "It has {{count}} uncommitted change. Tick \"force\" to discard it.",
     "dirty_other": "It has {{count}} uncommitted changes. Tick \"force\" to discard them.",
     "force": "Force (discard uncommitted changes)",
+    "lockedBy": "Locked by {{owner}}, which may still be using it. Tick \"unlock\" to remove it anyway.",
+    "lockedReason": "Locked by another tool: {{reason}}. Tick \"unlock\" to remove it anyway.",
+    "locked": "Locked by another tool. Tick \"unlock\" to remove it anyway.",
+    "unlock": "Unlock (the lock is restored if the removal fails)",
     "deleteBranch": "Also delete local branch {{branch}} (the remote branch is never deleted)",
     "confirm": "Remove"
   },

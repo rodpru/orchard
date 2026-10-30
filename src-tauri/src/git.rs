@@ -27,6 +27,8 @@ pub struct Worktree {
     head: String,
     is_main: bool,
     locked: bool,
+    /// Why another tool locked the worktree, as given to `git worktree lock --reason`.
+    lock_reason: Option<String>,
     prunable: bool,
     #[ts(type = "number")]
     changes: usize,
@@ -44,6 +46,7 @@ fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {
                 head: String::new(),
                 is_main: index == 0,
                 locked: false,
+                lock_reason: None,
                 prunable: false,
                 changes: 0,
             };
@@ -53,7 +56,10 @@ fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {
                     "worktree" => wt.path = value.to_owned(),
                     "HEAD" => wt.head = value.to_owned(),
                     "branch" => wt.branch = Some(value.trim_start_matches("refs/heads/").to_owned()),
-                    "locked" => wt.locked = true,
+                    "locked" => {
+                        wt.locked = true;
+                        wt.lock_reason = (!value.is_empty()).then(|| unquote(value));
+                    }
                     "prunable" => wt.prunable = true,
                     _ => {}
                 }
@@ -61,6 +67,40 @@ fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {
             (!wt.path.is_empty()).then_some(wt)
         })
         .collect()
+}
+
+/// Undoes git's C-style quoting, which `--porcelain` applies to a lock reason
+/// with quotes, backslashes or control characters in it.
+fn unquote(value: &str) -> String {
+    let Some(inner) = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) else {
+        return value.to_owned();
+    };
+    let mut bytes = Vec::with_capacity(inner.len());
+    let mut chars = inner.bytes();
+    while let Some(byte) = chars.next() {
+        if byte != b'\\' {
+            bytes.push(byte);
+            continue;
+        }
+        match chars.next() {
+            Some(b'n') => bytes.push(b'\n'),
+            Some(b't') => bytes.push(b'\t'),
+            Some(b'r') => bytes.push(b'\r'),
+            Some(b'a') => bytes.push(0x07),
+            Some(b'b') => bytes.push(0x08),
+            Some(b'f') => bytes.push(0x0c),
+            Some(b'v') => bytes.push(0x0b),
+            // Bytes outside ASCII come as three octal digits each.
+            Some(digit @ b'0'..=b'7') => {
+                let rest: Vec<u8> = chars.by_ref().take(2).collect();
+                let octal = [digit].iter().chain(&rest).fold(0u32, |n, d| n * 8 + u32::from(d - b'0'));
+                bytes.push(octal as u8);
+            }
+            Some(other) => bytes.push(other),
+            None => bytes.push(b'\\'),
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// Resolves any path inside a repository (or one of its worktrees) to the
@@ -176,14 +216,32 @@ pub async fn create_worktree(repo: &Path, branch: &str, base: Option<&str>, root
 }
 
 /// Removes the worktree and, when asked, its **local** branch. Remote
-/// branches are never touched.
-pub async fn remove_worktree(repo: &Path, path: &str, force: bool, delete_branch: Option<&str>) -> Result<()> {
+/// branches are never touched. `unlock` first lifts a lock another tool put
+/// on the worktree; if the removal then fails, the lock is put back.
+pub async fn remove_worktree(
+    repo: &Path,
+    path: &str,
+    force: bool,
+    unlock: bool,
+    delete_branch: Option<&str>,
+) -> Result<()> {
+    let lock = if unlock { lift_lock(repo, path).await? } else { None };
     let mut args = vec!["worktree", "remove"];
     if force {
         args.push("--force");
     }
     args.extend(["--", path]);
-    git(repo, &args).await?;
+    if let Err(e) = git(repo, &args).await {
+        if let Some(reason) = lock {
+            let mut relock = vec!["worktree", "lock"];
+            if !reason.is_empty() {
+                relock.extend(["--reason", &reason]);
+            }
+            relock.extend(["--", path]);
+            let _ = git(repo, &relock).await;
+        }
+        return Err(e);
+    }
     if let Some(branch) = delete_branch {
         if !local_branch_exists(repo, branch).await {
             return Err(Error::Invalid(format!("worktree removed, but {branch} is not a local branch")));
@@ -193,6 +251,19 @@ pub async fn remove_worktree(repo: &Path, path: &str, force: bool, delete_branch
             .map_err(|e| Error::Invalid(format!("worktree removed, but deleting branch {branch} failed: {e}")))?;
     }
     Ok(())
+}
+
+/// Unlocks `path` if it is locked and returns the lock's reason, empty when
+/// it had none, so a failed removal can lock it again.
+async fn lift_lock(repo: &Path, path: &str) -> Result<Option<String>> {
+    let porcelain = git(repo, &["worktree", "list", "--porcelain"]).await?;
+    let canonical = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| PathBuf::from(p));
+    let target = canonical(path);
+    let Some(wt) = parse_worktrees(&porcelain).into_iter().find(|wt| wt.locked && canonical(&wt.path) == target) else {
+        return Ok(None);
+    };
+    git(repo, &["worktree", "unlock", "--", path]).await?;
+    Ok(Some(wt.lock_reason.unwrap_or_default()))
 }
 
 #[tauri::command]
@@ -221,8 +292,14 @@ pub async fn git_create_worktree(
 }
 
 #[tauri::command]
-pub async fn git_remove_worktree(repo: String, path: String, force: bool, delete_branch: Option<String>) -> Result<()> {
-    remove_worktree(Path::new(&repo), &path, force, delete_branch.as_deref()).await
+pub async fn git_remove_worktree(
+    repo: String,
+    path: String,
+    force: bool,
+    unlock: bool,
+    delete_branch: Option<String>,
+) -> Result<()> {
+    remove_worktree(Path::new(&repo), &path, force, unlock, delete_branch.as_deref()).await
 }
 
 #[cfg(test)]
@@ -232,14 +309,24 @@ mod tests {
 
     #[test]
     fn parses_porcelain() {
-        let input = "worktree /r\nHEAD abc\nbranch refs/heads/main\n\nworktree /r.wt/feat\nHEAD def\nbranch refs/heads/feat/x\nlocked\n\nworktree /r.wt/d\nHEAD 123\ndetached\nprunable gitdir file points to non-existent location\n";
+        let input = "worktree /r\nHEAD abc\nbranch refs/heads/main\n\nworktree /r.wt/feat\nHEAD def\nbranch refs/heads/feat/x\nlocked {\"owner\":\"supacode\"}\n\nworktree /r.wt/d\nHEAD 123\ndetached\nprunable gitdir file points to non-existent location\n";
         let wts = parse_worktrees(input);
         assert_eq!(wts.len(), 3);
         assert!(wts[0].is_main);
         assert_eq!(wts[1].branch.as_deref(), Some("feat/x"));
         assert!(wts[1].locked);
+        assert_eq!(wts[1].lock_reason.as_deref(), Some(r#"{"owner":"supacode"}"#));
+        assert!(wts[0].lock_reason.is_none());
         assert_eq!(wts[2].branch, None);
         assert!(wts[2].prunable);
+    }
+
+    #[test]
+    fn unquotes_lock_reasons() {
+        assert_eq!(unquote("plain reason"), "plain reason");
+        assert_eq!(unquote(r#""{\"owner\":\"supacode\"}""#), r#"{"owner":"supacode"}"#);
+        assert_eq!(unquote(r#""a\\b\tc""#), "a\\b\tc");
+        assert_eq!(unquote(r#""caf\303\251""#), "café");
     }
 
     fn sh(cwd: &Path, args: &[&str]) -> String {
@@ -274,12 +361,36 @@ mod tests {
         // The branch is already checked out, so a second worktree fails.
         assert!(block_on(create_worktree(&repo, "feat/x", None, None)).is_err());
 
-        let dirty = block_on(remove_worktree(&repo, &path, false, None)).unwrap_err();
+        let dirty = block_on(remove_worktree(&repo, &path, false, false, None)).unwrap_err();
         assert!(dirty.to_string().starts_with("git worktree remove -- "), "{dirty}");
-        block_on(remove_worktree(&repo, &path, true, Some("feat/x"))).unwrap();
+        block_on(remove_worktree(&repo, &path, true, false, Some("feat/x"))).unwrap();
         let branches = block_on(list_branches(&repo)).unwrap();
         assert_eq!(branches.local, vec!["main".to_string()]);
         assert_eq!(branches.remote, vec!["origin/main".to_string()]);
+    }
+
+    #[test]
+    fn a_worktree_locked_by_another_tool_is_unlocked_to_remove() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("app");
+        std::fs::create_dir_all(&repo).unwrap();
+        sh(&repo, &["init", "-q", "-b", "main"]);
+        sh(&repo, &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"]);
+        let path = block_on(create_worktree(&repo, "locked", None, None)).unwrap();
+        let reason = r#"{"owner":"supacode","version":"0.11.6"}"#;
+        sh(&repo, &["worktree", "lock", "--reason", reason, "--", &path]);
+
+        let refused = block_on(remove_worktree(&repo, &path, true, false, None)).unwrap_err();
+        assert!(refused.to_string().contains("locked"), "{refused}");
+
+        // A failed removal (dirty, no force) puts the same lock back.
+        std::fs::write(Path::new(&path).join("new.txt"), "hi").unwrap();
+        assert!(block_on(remove_worktree(&repo, &path, false, true, None)).is_err());
+        let wts = block_on(list_worktrees(&repo)).unwrap();
+        assert_eq!(wts[1].lock_reason.as_deref(), Some(reason));
+
+        block_on(remove_worktree(&repo, &path, true, true, None)).unwrap();
+        assert_eq!(block_on(list_worktrees(&repo)).unwrap().len(), 1);
     }
 
     #[test]
@@ -291,7 +402,7 @@ mod tests {
         sh(&repo, &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"]);
         sh(&repo, &["update-ref", "refs/remotes/origin/feat", "HEAD"]);
         let path = block_on(create_worktree(&repo, "other", None, None)).unwrap();
-        let err = block_on(remove_worktree(&repo, &path, false, Some("origin/feat"))).unwrap_err();
+        let err = block_on(remove_worktree(&repo, &path, false, false, Some("origin/feat"))).unwrap_err();
         assert!(err.to_string().contains("not a local branch"), "{err}");
         assert_eq!(sh(&repo, &["for-each-ref", "--format=%(refname)", "refs/remotes"]), "refs/remotes/origin/feat");
     }

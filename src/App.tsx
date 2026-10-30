@@ -141,7 +141,7 @@ export default function App() {
    * whenever the worktree is gone afterwards, even when deleting the branch
    * failed.
    */
-  const removeWorktree = async (repo: string, worktree: Worktree, options: { force: boolean; deleteBranch: boolean }) => {
+  const removeWorktree = async (repo: string, worktree: Worktree, options: { force: boolean; unlock: boolean; deleteBranch: boolean }) => {
     const { path } = worktree;
     await closeSessions([path]);
     try {
@@ -149,6 +149,7 @@ export default function App() {
         repo,
         path,
         force: options.force,
+        unlock: options.unlock,
         deleteBranch: options.deleteBranch ? worktree.branch : null,
       });
       setDialog(null);

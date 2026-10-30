@@ -92,6 +92,10 @@
     "dirty_one": "Tem {{count}} alteração por fazer commit. Marca \"forçar\" para a descartar.",
     "dirty_other": "Tem {{count}} alterações por fazer commit. Marca \"forçar\" para as descartar.",
     "force": "Forçar (descarta alterações sem commit)",
+    "lockedBy": "Bloqueada pelo {{owner}}, que ainda a pode estar a usar. Marca \"desbloquear\" para a remover na mesma.",
+    "lockedReason": "Bloqueada por outra ferramenta: {{reason}}. Marca \"desbloquear\" para a remover na mesma.",
+    "locked": "Bloqueada por outra ferramenta. Marca \"desbloquear\" para a remover na mesma.",
+    "unlock": "Desbloquear (o bloqueio volta se a remoção falhar)",
     "deleteBranch": "Apagar também o branch local {{branch}} (o branch remoto nunca é apagado)",
     "confirm": "Remover"
   },
