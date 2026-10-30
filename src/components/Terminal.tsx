@@ -75,7 +75,9 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
     const openHyperlink = async (uri: string) => {
       if (!isOpenableUrl(uri)) return;
       const { t } = latest.current;
-      const confirmed = await ask(t("terminal.openLink", { url: uri }), {
+      // The parsed form spells an internationalised domain in punycode, so a
+      // look-alike such as `аpple.com` (Cyrillic а) shows as `xn--pple-43d.com`.
+      const confirmed = await ask(t("terminal.openLink", { url: new URL(uri).href }), {
         kind: "warning",
         okLabel: t("common.open"),
         cancelLabel: t("common.cancel"),

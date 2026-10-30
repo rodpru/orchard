@@ -417,14 +417,19 @@ mod tests {
     fn a_steady_trickle_is_flushed_within_the_batch_limit() {
         use std::os::fd::AsRawFd;
         let (mut reader, mut writer) = std::io::pipe().unwrap();
-        // 100 bytes every 3 ms never leaves a READ_BATCH_WAIT gap; without
-        // READ_BATCH_MAX the batch would only end at 64 KB, about 2 s in.
+        // 100 bytes every 0.5 ms never leaves a READ_BATCH_WAIT gap; without
+        // READ_BATCH_MAX the batch would only end at 64 KB, about 330 ms in.
+        // A busy wait, because `sleep` on macOS can oversleep past the gap
+        // and end the batch early, which would pass even without the cap.
         let feeder = std::thread::spawn(move || {
-            for _ in 0..700 {
+            for _ in 0..1400 {
                 if writer.write_all(&[b'x'; 100]).is_err() {
                     break;
                 }
-                std::thread::sleep(Duration::from_millis(3));
+                let tick = Instant::now();
+                while tick.elapsed() < Duration::from_micros(500) {
+                    std::hint::spin_loop();
+                }
             }
         });
         let fd = reader.as_raw_fd();
@@ -435,8 +440,10 @@ mod tests {
         drop(reader);
         feeder.join().unwrap();
         assert!(open);
-        assert!(!chunk.is_empty() && chunk.len() < READ_BATCH_BYTES);
-        assert!(took < Duration::from_millis(200), "batch took {took:?}");
+        // About 2.4 KB arrive in READ_BATCH_MAX; a quarter of the byte limit
+        // leaves room for a slow machine and still fails without the cap.
+        assert!(!chunk.is_empty() && chunk.len() < READ_BATCH_BYTES / 4, "batch of {} bytes", chunk.len());
+        assert!(took < Duration::from_millis(100), "batch took {took:?}");
     }
 
     #[test]

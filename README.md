@@ -62,7 +62,7 @@ On macOS, copy the app with `cp -R src-tauri/target/release/bundle/macos/Orchard
 
 ### Updates
 
-Orchard checks GitHub Releases for a new version 30 seconds after launch and every six hours. On macOS it installs the update in the background, and you get it the next time you open Orchard; running agents are never interrupted. On Linux, an **Update available** button appears in the sidebar and opens the release page; install the new `.deb` with `sudo apt install ./orchard_amd64.deb`. The same button appears on macOS when Orchard's folder isn't writable by your user; update with `brew upgrade --cask --greedy rodpru/tap/orchard`. If a check fails for any reason other than being offline, Settings shows why. To turn this off, untick **Update automatically** in Settings.
+Orchard checks GitHub Releases for a new version 30 seconds after launch and every six hours. On macOS it installs the update in the background, and you get it the next time you open Orchard; running agents are never interrupted. On Linux, an **Update available** button appears in the sidebar and opens the release page; install the new `.deb` with `sudo apt install ./orchard_amd64.deb`. The same button appears on macOS when Orchard's folder isn't writable by your user; download the new `.dmg` from the release page, or, if you installed with Homebrew, run `brew upgrade --cask --greedy rodpru/tap/orchard`. If a check fails for any reason other than being offline, Settings shows why. To turn this off, untick **Update automatically** in Settings.
 
 ## Use
 

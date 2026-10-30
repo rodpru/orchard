@@ -89,6 +89,11 @@ mod tests {
 
     #[test]
     fn writable_follows_the_folder_permissions() {
+        // Root writes through any permission bits.
+        // SAFETY: plain syscall with no arguments.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         assert!(writable(dir.path()));
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();

@@ -40,5 +40,6 @@ export function useUpdate(enabled: boolean) {
 
   const openReleases = useCallback(() => api.openUrl(RELEASES_URL), []);
 
-  return { available, error, openReleases };
+  // An error from before the user turned updates off is stale.
+  return { available, error: enabled ? error : null, openReleases };
 }

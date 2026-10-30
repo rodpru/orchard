@@ -69,8 +69,14 @@ fn probe_path(shell: &str, timeout: Duration) -> Option<String> {
 /// PATH for programs Orchard starts: the login shell's, or this process's
 /// when the shell fails. Blocks until the probe has answered or timed out.
 fn resolved_path() -> &'static OsStr {
-    PATH.get_or_init(|| {
-        probe_path(&user_shell(), SHELL_PATH_TIMEOUT)
+    resolve_once(&PATH, &user_shell())
+}
+
+/// Probes `shell` the first time and hands every caller, concurrent ones
+/// included, the same answer.
+fn resolve_once<'a>(cell: &'a OnceLock<OsString>, shell: &str) -> &'a OsStr {
+    cell.get_or_init(|| {
+        probe_path(shell, SHELL_PATH_TIMEOUT)
             .map(OsString::from)
             .or_else(|| std::env::var_os("PATH"))
             .unwrap_or_default()
@@ -199,33 +205,68 @@ mod tests {
         path.to_string_lossy().into_owned()
     }
 
+    /// A background `sleep` that records its pid, like a daemon an rc file starts.
+    fn daemon(dir: &tempfile::TempDir) -> (String, std::path::PathBuf) {
+        let pidfile = dir.path().join("daemon.pid");
+        (format!("sleep 30 &\necho $! > '{}'", pidfile.display()), pidfile)
+    }
+
+    /// The daemon is gone once the probe returns: it was in the shell's
+    /// process group, so the group kill reached it too.
+    fn assert_killed(pidfile: &std::path::Path) {
+        let pid: libc::pid_t = std::fs::read_to_string(pidfile).unwrap().trim().parse().unwrap();
+        // Orphaned by the shell, it is reaped by init shortly after the kill.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        // SAFETY: signal 0 only checks that the process exists.
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            assert!(Instant::now() < deadline, "daemon {pid} survived the probe");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     #[test]
     fn a_daemon_holding_stdout_does_not_hang_the_probe() {
         let dir = tempfile::tempdir().unwrap();
-        let shell = fake_shell(&dir, "sleep 30 &\nprintf '__ORCHARD__/fake/bin__ORCHARD__'");
+        let (start_daemon, pidfile) = daemon(&dir);
+        let shell = fake_shell(&dir, &format!("{start_daemon}\nprintf '__ORCHARD__/fake/bin__ORCHARD__'"));
         let start = Instant::now();
         assert_eq!(probe_path(&shell, Duration::from_secs(5)).as_deref(), Some("/fake/bin"));
         assert!(start.elapsed() < Duration::from_secs(2), "took {:?}", start.elapsed());
+        assert_killed(&pidfile);
     }
 
     #[test]
     fn a_hung_shell_times_out() {
         let dir = tempfile::tempdir().unwrap();
-        let shell = fake_shell(&dir, "sleep 30 &\nsleep 30");
+        let (start_daemon, pidfile) = daemon(&dir);
+        let shell = fake_shell(&dir, &format!("{start_daemon}\nsleep 30"));
         let start = Instant::now();
         assert_eq!(probe_path(&shell, Duration::from_millis(200)), None);
         assert!(start.elapsed() < Duration::from_secs(2), "took {:?}", start.elapsed());
+        assert_killed(&pidfile);
     }
 
     #[test]
     fn concurrent_callers_share_one_resolved_path() {
-        let threads: Vec<_> = (0..8).map(|_| std::thread::spawn(resolved_path)).collect();
-        let first = resolved_path();
-        assert!(!first.is_empty());
+        static CELL: OnceLock<OsString> = OnceLock::new();
+        let dir = tempfile::tempdir().unwrap();
+        let calls = dir.path().join("calls");
+        // Slow enough that every thread arrives while the first probe runs.
+        let shell = fake_shell(
+            &dir,
+            &format!("echo x >> '{}'\nsleep 0.2\nprintf '__ORCHARD__/fake/bin__ORCHARD__'", calls.display()),
+        );
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let shell = shell.clone();
+                std::thread::spawn(move || resolve_once(&CELL, &shell))
+            })
+            .collect();
+        let first = resolve_once(&CELL, &shell);
+        assert_eq!(first, "/fake/bin");
         for thread in threads {
             assert!(std::ptr::eq(thread.join().unwrap(), first));
         }
-        assert!(std::ptr::eq(tauri::async_runtime::block_on(path()), first));
-        assert!(ready_path().is_some_and(|p| std::ptr::eq(p, first)));
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 1);
     }
 }
