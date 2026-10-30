@@ -136,10 +136,13 @@ async fn snapshot(worktree: &Path) -> Result<Option<String>> {
     let (head, head_tree) = heads.split_once('\n').unwrap_or((&heads, ""));
     let index = worktree.join(git(worktree, &["rev-parse", "--git-path", "index"]).await?);
     let tmp = TempIndex::new();
-    if index.exists() {
+    if let Ok(meta) = tokio::fs::metadata(&index).await {
         // Starting from the real index keeps git's stat cache, so `add` only
-        // rereads files that changed.
+        // rereads files that changed. The copy keeps the index's mtime: git
+        // rereads files written in the same second as the index ("racy git"),
+        // and a fresh mtime would hide a same-size edit made in that second.
         tokio::fs::copy(&index, &tmp.0).await?;
+        std::fs::File::options().write(true).open(&tmp.0)?.set_modified(meta.modified()?)?;
     }
     let tmp_path = tmp.0.to_string_lossy();
     let env = [NO_OPTIONAL_LOCKS, ("GIT_INDEX_FILE", &tmp_path)];
@@ -610,6 +613,19 @@ mod tests {
         assert_eq!(with_pr(&g), Some(ClashKind::Overlap), "{report:?}");
         assert_eq!(with_pr(&head), Some(ClashKind::Conflict), "{report:?}");
         assert_eq!(with_pr(&tail), Some(ClashKind::Overlap), "{report:?}");
+    }
+
+    #[test]
+    fn a_same_size_edit_right_after_checkout_is_seen() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (repo, _) = setup(tmp.path());
+        let wt = add_worktree(&repo, "racy");
+        // Same size as "x\n", likely in the same second as the checkout.
+        write(&wt, "g.txt", "y\n");
+        // The snapshot's index is then a second newer than the file.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let head = sh(&wt, &["rev-parse", "HEAD"]);
+        assert_ne!(block_on(snapshot(&wt)).unwrap(), Some(head));
     }
 
     fn ref_exists_sync(repo: &Path, name: &str) -> bool {
