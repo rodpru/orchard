@@ -13,6 +13,9 @@ import { isMac } from "../lib/platform";
 import type { SessionId } from "../lib/sessions";
 import { droppedPaths } from "../lib/shell";
 
+/** How long a resize must settle before the terminal refits. */
+const FIT_DEBOUNCE_MS = 50;
+
 const THEME = {
   background: "#16171d",
   foreground: "#d8dae3",
@@ -223,8 +226,15 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
       term.focus();
     });
 
+    // Dragging the splitter or the window edge resizes on every frame; each
+    // fit reflows xterm and resizes the PTY, so only the last size counts.
+    // Mounting and switching tabs fit right away above and below.
+    let fitTimer: number | undefined;
     const observer = new ResizeObserver(() => {
-      if (container.offsetWidth > 0 && container.offsetHeight > 0) fit.fit();
+      window.clearTimeout(fitTimer);
+      fitTimer = window.setTimeout(() => {
+        if (container.offsetWidth > 0 && container.offsetHeight > 0) fit.fit();
+      }, FIT_DEBOUNCE_MS);
     });
     observer.observe(container);
 
@@ -240,6 +250,7 @@ export function Terminal({ id, cwd, command, active, onActivity, onBell }: Props
       disposed = true;
       void stopDrop.then((stop) => stop());
       observer.disconnect();
+      window.clearTimeout(fitTimer);
       visibility.disconnect();
       if (token !== null) void api.ptyDetach(id, token).catch(() => undefined);
       term.dispose();

@@ -293,9 +293,7 @@ async fn fetch(repo: &Path, prs: Option<&[OpenPr]>) -> Result<()> {
     let env = [NO_OPTIONAL_LOCKS, ("GIT_TERMINAL_PROMPT", "0")];
     let timed = |args: Vec<String>| async move {
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        tokio::time::timeout(FETCH_TIMEOUT, process::run(repo, "git", &args, &env))
-            .await
-            .map_err(|_| Error::Invalid("git fetch timed out".into()))?
+        process::run_within(FETCH_TIMEOUT, repo, "git", &args, &env).await
     };
     let base = ["fetch", "--quiet", "--no-tags"].map(String::from);
     timed([&base[..], &["--prune".into(), "origin".into()]].concat()).await?;

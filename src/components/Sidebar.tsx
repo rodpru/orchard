@@ -55,10 +55,17 @@ export function Sidebar(props: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(() => Date.now());
 
+  // Re-renders only when a busy dot should go out: at the end of the
+  // earliest busy window still open, not on a fixed tick. New activity
+  // re-renders on its own, and a timestamp newer than `now` reads as busy.
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+    const ends = Object.values(props.activity)
+      .map((at) => at + BUSY_WINDOW_MS - Date.now())
+      .filter((left) => left > 0);
+    if (ends.length === 0) return;
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(...ends));
+    return () => window.clearTimeout(timer);
+  }, [props.activity, now]);
 
   const toggle = (key: string) =>
     setCollapsed((current) => {

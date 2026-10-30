@@ -1,8 +1,9 @@
 use crate::error::{Error, Result};
-use crate::process::run;
+use crate::process::{run, run_within};
 use futures_util::{StreamExt, stream};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use ts_rs::TS;
 
 /// Parallel `git status` calls per refresh. Enough to hide latency without
@@ -14,6 +15,14 @@ const STATUS_CONCURRENCY: usize = 8;
 /// `index.lock` makes their commands fail with "File exists".
 pub(crate) async fn git(cwd: &Path, args: &[&str]) -> Result<String> {
     run(cwd, "git", args, &[NO_OPTIONAL_LOCKS]).await
+}
+
+/// Checking out or deleting a large worktree (`node_modules` and the like)
+/// can outlast the default timeout, and killing it halfway leaves a mess.
+const WORKTREE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+async fn git_worktree(cwd: &Path, args: &[&str]) -> Result<String> {
+    run_within(WORKTREE_TIMEOUT, cwd, "git", args, &[NO_OPTIONAL_LOCKS]).await
 }
 
 pub(crate) const NO_OPTIONAL_LOCKS: (&str, &str) = ("GIT_OPTIONAL_LOCKS", "0");
@@ -206,11 +215,11 @@ pub async fn create_worktree(repo: &Path, branch: &str, base: Option<&str>, root
     let path_str = path.to_string_lossy().into_owned();
 
     if local_branch_exists(repo, branch).await {
-        git(repo, &["worktree", "add", "--", &path_str, branch]).await?;
+        git_worktree(repo, &["worktree", "add", "--", &path_str, branch]).await?;
     } else {
         // --no-track: a branch started from `origin/main` must not push to it.
         let base = base.unwrap_or("HEAD");
-        git(repo, &["worktree", "add", "--no-track", "-b", branch, "--", &path_str, base]).await?;
+        git_worktree(repo, &["worktree", "add", "--no-track", "-b", branch, "--", &path_str, base]).await?;
     }
     Ok(path_str)
 }
@@ -231,7 +240,7 @@ pub async fn remove_worktree(
         args.push("--force");
     }
     args.extend(["--", path]);
-    if let Err(e) = git(repo, &args).await {
+    if let Err(e) = git_worktree(repo, &args).await {
         if let Some(reason) = lock {
             let mut relock = vec!["worktree", "lock"];
             if !reason.is_empty() {
