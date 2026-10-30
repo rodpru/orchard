@@ -39,6 +39,18 @@ sudo apt install ./orchard_amd64.deb
 
 This adds Orchard to the application launcher and `orchard` to your PATH. apt installs WebKitGTK and GTK if they are missing. `sudo apt remove orchard` uninstalls it.
 
+To check the `.deb` before installing it, verify it against the updater's signature with [minisign](https://jedisct1.github.io/minisign/). Download both files from the same tagged release, so a release published in between cannot hand you a `.deb` and a signature that don't match:
+
+```bash
+v=0.3.1
+base=https://github.com/rodpru/orchard/releases/download/v$v
+curl -fLO "$base/orchard_amd64.deb" -fLO "$base/latest.json"
+jq -r '.platforms["linux-x86_64-deb"].signature' latest.json | base64 -d > orchard_amd64.deb.minisig
+minisign -Vm orchard_amd64.deb -x orchard_amd64.deb.minisig -P RWT0nOat3CMJ0bNdkyhWUMclpsl1pI/A/hrPgZC+3hVawnjBPfR6gsXa
+```
+
+`minisign` prints `Signature and comment signature verified` and the version it signed. The public key is the one in `src-tauri/tauri.conf.json` that the updater uses.
+
 If the window stays blank, try starting it with `WEBKIT_DISABLE_COMPOSITING_MODE=1 orchard`. Orchard already turns off WebKitGTK's DMA-BUF renderer, the usual cause on NVIDIA and some Wayland setups.
 
 ### Build from source

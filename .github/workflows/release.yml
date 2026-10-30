@@ -14,7 +14,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # latest.json takes its version from the tag and the signature from
       # tauri.conf.json; if they differ, no client accepts the update.
       - name: Check the tag matches the app version
@@ -42,33 +42,31 @@ jobs:
     needs: release
     runs-on: macos-latest
     outputs:
-      signature: ${{ steps.dmg.outputs.signature }}
       sha256: ${{ steps.dmg.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: aarch64-apple-darwin, x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
       # Universal build: one .dmg for Apple Silicon and Intel, so the cask needs a single url.
-      # The release config signs the updater archive.
-      # The CLI only warns when the signing key does not match the app's pubkey,
-      # and no client could install that release, so the warning fails the build.
+      # The release config makes the updater archive, which the CLI only does
+      # with a key at hand. A throwaway one keeps the real key away from the
+      # build and its dependencies; the `sign` job signs the archive for real.
       - shell: bash
         run: |
-          pnpm exec tauri build --target universal-apple-darwin --config src-tauri/tauri.release.conf.json -- --locked 2>&1 | tee build.log
-          if grep -q "does not match the public key" build.log; then exit 1; fi
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          pnpm exec tauri signer generate --ci -p "" -w "$RUNNER_TEMP/throwaway.key"
+          TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/throwaway.key")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+            pnpm exec tauri build --target universal-apple-darwin --config src-tauri/tauri.release.conf.json -- --locked
       - name: Upload the .dmg and the updater archive to the GitHub Release
         id: dmg
         env:
@@ -77,7 +75,6 @@ jobs:
           bundle=src-tauri/target/universal-apple-darwin/release/bundle
           dmg=$(ls "$bundle"/dmg/*.dmg)
           echo "sha256=$(shasum -a 256 "$dmg" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-          echo "signature=$(cat "$bundle/macos/Orchard.app.tar.gz.sig")" >> "$GITHUB_OUTPUT"
           cp "$bundle/macos/Orchard.app.tar.gz" Orchard_universal.app.tar.gz
           gh release upload "$GITHUB_REF_NAME" "$dmg" Orchard_universal.app.tar.gz --clobber
 
@@ -86,55 +83,98 @@ jobs:
     # The oldest supported runner, so the .deb links against an older glibc
     # and installs on more distributions.
     runs-on: ubuntu-22.04
-    outputs:
-      signature: ${{ steps.deb.outputs.signature }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the WebKitGTK build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev patchelf
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
+      # A throwaway key, as on macOS.
       - shell: bash
         run: |
-          pnpm exec tauri build --config src-tauri/tauri.release.conf.json -- --locked 2>&1 | tee build.log
-          if grep -q "does not match the public key" build.log; then exit 1; fi
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          pnpm exec tauri signer generate --ci -p "" -w "$RUNNER_TEMP/throwaway.key"
+          TAURI_SIGNING_PRIVATE_KEY="$(cat "$RUNNER_TEMP/throwaway.key")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+            pnpm exec tauri build --config src-tauri/tauri.release.conf.json -- --locked
       # A fixed asset name, so releases/latest/download/orchard_amd64.deb always
       # points at the newest version.
       - name: Upload the .deb to the GitHub Release
-        id: deb
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           deb=$(ls src-tauri/target/release/bundle/deb/*.deb)
-          echo "signature=$(cat "$deb.sig")" >> "$GITHUB_OUTPUT"
           cp "$deb" orchard_amd64.deb
           gh release upload "$GITHUB_REF_NAME" orchard_amd64.deb --clobber
+
+  # The only job that sees the signing key. It builds nothing and installs
+  # nothing from the project: it signs the updater files the build jobs
+  # uploaded, and checks each signature against the app's public key, since
+  # no client accepts an update signed by another key.
+  sign:
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      macos: ${{ steps.sign.outputs.macos }}
+      linux: ${{ steps.sign.outputs.linux }}
+    steps:
+      # Only the config with the public key; no package.json or .npmrc.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: src-tauri/tauri.conf.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Download the updater files from the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --pattern Orchard_universal.app.tar.gz --pattern orchard_amd64.deb
+      # `requireSignedVersion` in tauri.conf.json makes clients reject a
+      # signature without the version, so it is bound to the tag's.
+      - name: Sign them
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          for file in Orchard_universal.app.tar.gz orchard_amd64.deb; do
+            npx --yes @tauri-apps/cli@2.12.3 signer sign --app-version "${GITHUB_REF_NAME#v}" "$file"
+          done
+      - name: Check the signatures against the app's public key
+        id: sign
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q minisign
+          pubkey=$(jq -r .plugins.updater.pubkey src-tauri/tauri.conf.json | base64 -d | tail -1)
+          for file in Orchard_universal.app.tar.gz orchard_amd64.deb; do
+            base64 -d < "$file.sig" > "$file.minisig"
+            minisign -Vm "$file" -x "$file.minisig" -P "$pubkey"
+          done
+          echo "macos=$(cat Orchard_universal.app.tar.gz.sig)" >> "$GITHUB_OUTPUT"
+          echo "linux=$(cat orchard_amd64.deb.sig)" >> "$GITHUB_OUTPUT"
 
   # The manifest goes up last and the draft is published after it, so the
   # updater never sees a manifest whose files are missing. The cask is pointed
   # at the release only once it is public.
   publish:
-    needs: [macos, linux]
+    needs: [macos, sign]
     runs-on: ubuntu-latest
     steps:
       - name: Upload latest.json and publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          MACOS_SIGNATURE: ${{ needs.macos.outputs.signature }}
-          LINUX_SIGNATURE: ${{ needs.linux.outputs.signature }}
+          MACOS_SIGNATURE: ${{ needs.sign.outputs.macos }}
+          LINUX_SIGNATURE: ${{ needs.sign.outputs.linux }}
         run: |
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
           # The universal archive serves both Mac architectures.
@@ -152,7 +192,7 @@ jobs:
             }}' > latest.json
           gh release upload "$GITHUB_REF_NAME" latest.json --clobber --repo "$GITHUB_REPOSITORY"
           gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: rodpru/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
