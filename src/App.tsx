@@ -12,6 +12,7 @@ import { useUpdate } from "./hooks/useUpdate";
 import { useWorktrees } from "./hooks/useWorktrees";
 import { api, errorMessage } from "./lib/api";
 import { shortcutKey, shortcutLabel } from "./lib/platform";
+import { removeKeepingSessions } from "./lib/removal";
 import type { Config, SessionInfo, Worktree } from "./lib/types";
 import "./styles.css";
 
@@ -137,28 +138,30 @@ export default function App() {
   );
 
   /**
-   * Removes the worktree and, if asked, its local branch. The pin is dropped
-   * whenever the worktree is gone afterwards, even when deleting the branch
-   * failed.
+   * Removes the worktree and, if asked, its local branch. Its sessions and
+   * pin go only once the worktree is gone, even when deleting the branch
+   * failed; a refused removal leaves them as they were.
    */
   const removeWorktree = async (repo: string, worktree: Worktree, options: { force: boolean; unlock: boolean; deleteBranch: boolean }) => {
     const { path } = worktree;
-    await closeSessions([path]);
-    try {
-      await api.removeWorktree({
-        repo,
-        path,
-        force: options.force,
-        unlock: options.unlock,
-        deleteBranch: options.deleteBranch ? worktree.branch : null,
-      });
-      setDialog(null);
-    } finally {
-      const list = await refreshRepo(repo);
-      if (list && !list.some((wt) => wt.path === path)) {
-        void updateConfig((c) => ({ ...c, pinned: c.pinned.filter((p) => p !== path) }));
-      }
-    }
+    await removeKeepingSessions(options.force, {
+      closeSessions: () => closeSessions([path]),
+      remove: async () => {
+        await api.removeWorktree({
+          repo,
+          path,
+          force: options.force,
+          unlock: options.unlock,
+          deleteBranch: options.deleteBranch ? worktree.branch : null,
+        });
+        setDialog(null);
+      },
+      stillListed: async () => {
+        const list = await refreshRepo(repo);
+        return list ? list.some((wt) => wt.path === path) : null;
+      },
+      forget: () => void updateConfig((c) => ({ ...c, pinned: c.pinned.filter((p) => p !== path) })),
+    });
   };
 
   const addRepo = async () => {
